@@ -638,7 +638,7 @@ function _fmtDate(ts) {
   return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
 }
 
-function loadEvolution() {
+async function loadEvolution() {
   const loading = document.getElementById('evo-loading');
   const canvas  = document.getElementById('evoChart');
   const stats   = document.getElementById('evo-stats');

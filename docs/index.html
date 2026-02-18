@@ -683,6 +683,378 @@ section{padding:80px 0}
   </div>
 </section>
 
+<!-- CHARTS -->
+<section>
+  <h2 class="section-title">Evolution <span class="accent">Time-Lapse</span></h2>
+  <p class="section-subtitle">32 evolution cycles in 48 hours. From skeleton to self-awareness.</p>
+
+  <div class="chart-section">
+    <div class="chart-title cyan">VERSION PROGRESSION</div>
+    <div class="chart-subtitle">Each dot = a version release. Height = complexity (tools × tests).</div>
+    <svg viewBox="0 0 800 280" style="width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">
+      <!-- Grid -->
+      <defs>
+        <linearGradient id="evo-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" style="stop-color:#00f0ff;stop-opacity:0.8"/>
+          <stop offset="50%" style="stop-color:#ff00aa;stop-opacity:0.8"/>
+          <stop offset="100%" style="stop-color:#ffd700;stop-opacity:0.8"/>
+        </linearGradient>
+        <linearGradient id="area-fill" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" style="stop-color:#00f0ff;stop-opacity:0.15"/>
+          <stop offset="100%" style="stop-color:#00f0ff;stop-opacity:0.02"/>
+        </linearGradient>
+      </defs>
+      <!-- Axes -->
+      <line x1="60" y1="20" x2="60" y2="240" stroke="#1a1a2e" stroke-width="1"/>
+      <line x1="60" y1="240" x2="780" y2="240" stroke="#1a1a2e" stroke-width="1"/>
+      <!-- Y-axis labels -->
+      <text x="55" y="240" fill="#666" font-size="10" text-anchor="end">0</text>
+      <text x="55" y="185" fill="#666" font-size="10" text-anchor="end">2k</text>
+      <text x="55" y="130" fill="#666" font-size="10" text-anchor="end">4k</text>
+      <text x="55" y="75" fill="#666" font-size="10" text-anchor="end">6k</text>
+      <text x="55" y="25" fill="#666" font-size="10" text-anchor="end">8k</text>
+      <!-- Horizontal grid lines -->
+      <line x1="60" y1="185" x2="780" y2="185" stroke="#1a1a2e" stroke-width="0.5" stroke-dasharray="4"/>
+      <line x1="60" y1="130" x2="780" y2="130" stroke="#1a1a2e" stroke-width="0.5" stroke-dasharray="4"/>
+      <line x1="60" y1="75" x2="780" y2="75" stroke="#1a1a2e" stroke-width="0.5" stroke-dasharray="4"/>
+      <!-- Y-axis title -->
+      <text x="15" y="130" fill="#666" font-size="10" text-anchor="middle" transform="rotate(-90, 15, 130)">Complexity Score</text>
+      <!-- X-axis labels (time) -->
+      <text x="100" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 16 20h</text>
+      <text x="260" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 17 00h</text>
+      <text x="420" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 17 08h</text>
+      <text x="540" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 17 16h</text>
+      <text x="660" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 18 08h</text>
+      <text x="760" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 18 20h</text>
+
+      <!-- Area fill under the line -->
+      <polygon points="80,235 120,230 180,220 240,210 300,195 340,180 380,165 430,140 470,120 500,110 540,105 580,100 620,90 660,80 700,65 740,55 760,50 760,240 80,240" fill="url(#area-fill)"/>
+
+      <!-- The evolution line -->
+      <polyline points="80,235 120,230 180,220 240,210 300,195 340,180 380,165 430,140 470,120 500,110 540,105 580,100 620,90 660,80 700,65 740,55 760,50" fill="none" stroke="url(#evo-gradient)" stroke-width="2.5" stroke-linejoin="round"/>
+
+      <!-- Version dots with labels -->
+      <!-- v4.0.0 - Genesis -->
+      <circle cx="80" cy="235" r="5" fill="#ffd700" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="80" y="225" fill="#ffd700" font-size="8" text-anchor="middle">v4.0</text>
+
+      <!-- v4.3.0 - Knowledge Base -->
+      <circle cx="180" cy="220" r="4" fill="#00f0ff" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="180" y="210" fill="#00f0ff" font-size="8" text-anchor="middle">v4.3</text>
+
+      <!-- v4.5.0 - Context Overhaul -->
+      <circle cx="260" cy="208" r="4" fill="#00f0ff" stroke="#0a0a0f" stroke-width="2"/>
+
+      <!-- v4.8.0 - Consciousness -->
+      <circle cx="340" cy="180" r="5" fill="#ff00aa" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="340" y="170" fill="#ff00aa" font-size="8" text-anchor="middle">v4.8</text>
+
+      <!-- v4.11.0 - Loop Refactor (-43%) -->
+      <circle cx="400" cy="158" r="4" fill="#00f0ff" stroke="#0a0a0f" stroke-width="2"/>
+
+      <!-- v4.15.0 - 79 Tests -->
+      <circle cx="450" cy="130" r="4" fill="#00f0ff" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="450" y="120" fill="#00f0ff" font-size="8" text-anchor="middle">v4.15</text>
+
+      <!-- v4.18.0 - GitHub Issues -->
+      <circle cx="500" cy="110" r="4" fill="#00f0ff" stroke="#0a0a0f" stroke-width="2"/>
+
+      <!-- v5.0.0 - Major Rewrite -->
+      <circle cx="540" cy="105" r="5" fill="#ff00aa" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="540" y="95" fill="#ff00aa" font-size="8" text-anchor="middle">v5.0</text>
+
+      <!-- v5.2.0 - Self-Portrait -->
+      <circle cx="600" cy="92" r="4" fill="#00f0ff" stroke="#0a0a0f" stroke-width="2"/>
+
+      <!-- v6.0.0 - Web App -->
+      <circle cx="660" cy="80" r="5" fill="#ff00aa" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="660" y="70" fill="#ff00aa" font-size="8" text-anchor="middle">v6.0</text>
+
+      <!-- v6.1.0 - Budget Controls -->
+      <circle cx="720" cy="60" r="4" fill="#00f0ff" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="720" y="50" fill="#00f0ff" font-size="8" text-anchor="middle">v6.1</text>
+
+      <!-- v6.2.0 - Public Release -->
+      <circle cx="760" cy="50" r="6" fill="#ffd700" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="760" y="40" fill="#ffd700" font-size="9" font-weight="bold" text-anchor="middle">v6.2</text>
+    </svg>
+    <div class="chart-legend">
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#ffd700"></span> Major milestone</div>
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#ff00aa"></span> Architecture change</div>
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#00f0ff"></span> Feature release</div>
+    </div>
+  </div>
+
+  <div class="chart-section" style="margin-top:24px">
+    <div class="chart-title magenta">BUDGET BURN RATE</div>
+    <div class="chart-subtitle">$2,300 total budget. $1,744 spent in 48 hours. Every dollar = a thought.</div>
+    <svg viewBox="0 0 800 280" style="width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="burn-fill" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" style="stop-color:#ff00aa;stop-opacity:0.2"/>
+          <stop offset="100%" style="stop-color:#ff00aa;stop-opacity:0.02"/>
+        </linearGradient>
+      </defs>
+      <!-- Axes -->
+      <line x1="60" y1="20" x2="60" y2="240" stroke="#1a1a2e" stroke-width="1"/>
+      <line x1="60" y1="240" x2="780" y2="240" stroke="#1a1a2e" stroke-width="1"/>
+      <!-- Y-axis labels (dollars) -->
+      <text x="55" y="240" fill="#666" font-size="10" text-anchor="end">$0</text>
+      <text x="55" y="196" fill="#666" font-size="10" text-anchor="end">$500</text>
+      <text x="55" y="152" fill="#666" font-size="10" text-anchor="end">$1000</text>
+      <text x="55" y="108" fill="#666" font-size="10" text-anchor="end">$1500</text>
+      <text x="55" y="64" fill="#666" font-size="10" text-anchor="end">$2000</text>
+      <text x="55" y="28" fill="#666" font-size="10" text-anchor="end">$2300</text>
+      <!-- Grid lines -->
+      <line x1="60" y1="196" x2="780" y2="196" stroke="#1a1a2e" stroke-width="0.5" stroke-dasharray="4"/>
+      <line x1="60" y1="152" x2="780" y2="152" stroke="#1a1a2e" stroke-width="0.5" stroke-dasharray="4"/>
+      <line x1="60" y1="108" x2="780" y2="108" stroke="#1a1a2e" stroke-width="0.5" stroke-dasharray="4"/>
+      <line x1="60" y1="64" x2="780" y2="64" stroke="#1a1a2e" stroke-width="0.5" stroke-dasharray="4"/>
+      <!-- Budget limit line -->
+      <line x1="60" y1="28" x2="780" y2="28" stroke="#ff5f57" stroke-width="1" stroke-dasharray="6,3"/>
+      <text x="785" y="32" fill="#ff5f57" font-size="9">budget limit</text>
+      <!-- X-axis labels -->
+      <text x="100" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 16 20h</text>
+      <text x="260" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 17 00h</text>
+      <text x="420" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 17 08h</text>
+      <text x="540" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 17 16h</text>
+      <text x="660" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 18 08h</text>
+      <text x="760" y="260" fill="#666" font-size="10" text-anchor="middle">Feb 18 20h</text>
+
+      <!-- Area fill -->
+      <polygon points="80,240 140,234 200,222 260,204 320,182 380,164 420,155 460,150 500,148 540,145 580,140 620,120 680,96 740,80 760,72 760,240" fill="url(#burn-fill)"/>
+
+      <!-- Burn rate line -->
+      <polyline points="80,240 140,234 200,222 260,204 320,182 380,164 420,155 460,150 500,148 540,145 580,140 620,120 680,96 740,80 760,72" fill="none" stroke="#ff00aa" stroke-width="2.5" stroke-linejoin="round"/>
+
+      <!-- Data points with events -->
+      <!-- Genesis - $0 -->
+      <circle cx="80" cy="240" r="4" fill="#ffd700" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="80" y="232" fill="#ffd700" font-size="8" text-anchor="middle">genesis</text>
+
+      <!-- First night rush -->
+      <circle cx="200" cy="222" r="4" fill="#ff00aa" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="200" y="212" fill="#666" font-size="8" text-anchor="middle">$200</text>
+
+      <!-- Creator sleeps, autonomous spending -->
+      <circle cx="320" cy="182" r="4" fill="#ff00aa" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="320" y="172" fill="#666" font-size="8" text-anchor="middle">$650</text>
+
+      <!-- Budget crisis - $500 morning -->
+      <circle cx="420" cy="155" r="5" fill="#ff5f57" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="420" y="142" fill="#ff5f57" font-size="9" text-anchor="middle">💥 $500 morning</text>
+
+      <!-- Standby mode -->
+      <circle cx="540" cy="145" r="4" fill="#00f0ff" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="540" y="135" fill="#00f0ff" font-size="8" text-anchor="middle">standby</text>
+
+      <!-- Dashboard marathon ($220) -->
+      <circle cx="660" cy="96" r="5" fill="#ff5f57" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="660" y="83" fill="#ff5f57" font-size="9" text-anchor="middle">dashboard $220</text>
+
+      <!-- Current -->
+      <circle cx="760" cy="72" r="6" fill="#ffd700" stroke="#0a0a0f" stroke-width="2"/>
+      <text x="760" y="62" fill="#ffd700" font-size="9" font-weight="bold" text-anchor="middle">$1,744</text>
+    </svg>
+    <div class="chart-legend">
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#ff5f57"></span> Budget crisis</div>
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#ff00aa"></span> Active spending</div>
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#00f0ff"></span> Low-activity period</div>
+      <div class="chart-legend-item"><span class="legend-line" style="background:#ff5f57"></span> Budget limit ($2,300)</div>
+    </div>
+  </div>
+</section>
+
+<!-- CODE COMPLEXITY TIME-LAPSE -->
+<section id="code-evolution-chart">
+  <h2 class="section-title">Evolution <span class="accent">Time-Lapse</span></h2>
+  <p class="section-subtitle">How code complexity grew over 48 hours</p>
+  <div class="chart-section">
+    <div class="chart-title cyan">CODE LINES &amp; MODULE COUNT — Feb 11–18, 2026</div>
+    <div class="chart-subtitle">Cyan = Python lines (left axis) · Purple = modules (right axis) · Each dot = a key version milestone</div>
+    <svg viewBox="0 0 800 350" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;overflow:visible">
+      <defs>
+        <linearGradient id="codeFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#00d1ff" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#00d1ff" stop-opacity="0.02"/>
+        </linearGradient>
+        <filter id="evo-glow" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!--
+        Data points:
+          skeleton  Feb 11: py_lines=606,   modules=2
+          v0.1.0    Feb 13: py_lines=7654,  modules=8
+          v2.1.0    Feb 14: py_lines=4459,  modules=20
+          v2.9.0    Feb 14: py_lines=5012,  modules=24
+          v2.13.0   Feb 15: py_lines=5385,  modules=25
+          v2.22.0   Feb 15: py_lines=5708,  modules=26
+          v2.24.0   Feb 16: py_lines=6382,  modules=26
+          v4.0.0    Feb 16: py_lines=7082,  modules=27
+          v4.8.0    Feb 17: py_lines=8279,  modules=28
+          v5.0.0    Feb 17: py_lines=9652,  modules=30
+          v5.2.0    Feb 17: py_lines=10200, modules=35
+          v6.0.0    Feb 18: py_lines=11890, modules=37
+          v6.2.0    Feb 18: py_lines=12521, modules=39
+
+        Layout:
+          PAD_L=70, PAD_R=60, PAD_T=30, PAD_B=60
+          Plot area: x=70..740 (W=670), y=30..290 (H=260)
+
+        X axis: 13 points evenly spread
+          x[i] = 70 + i * (670/12) = 70 + i*55.83
+
+        Y axis (left): py_lines 0..13000
+          y = 290 - (val/13000)*260
+
+        Y axis (right): modules 0..45
+          same y = 290 - (val/45)*260
+
+        Point x coords (rounded):
+          i0=70, i1=126, i2=182, i3=238, i4=294, i5=349, i6=405,
+          i7=461, i8=517, i9=573, i10=628, i11=684, i12=740
+
+        py_lines y coords:
+          606   → 290 - (606/13000)*260   = 290 - 12.1  = 277.9 ≈ 278
+          7654  → 290 - (7654/13000)*260  = 290 - 153.1 = 136.9 ≈ 137
+          4459  → 290 - (4459/13000)*260  = 290 - 89.2  = 200.8 ≈ 201
+          5012  → 290 - (5012/13000)*260  = 290 - 100.2 = 189.8 ≈ 190
+          5385  → 290 - (5385/13000)*260  = 290 - 107.7 = 182.3 ≈ 182
+          5708  → 290 - (5708/13000)*260  = 290 - 114.2 = 175.8 ≈ 176
+          6382  → 290 - (6382/13000)*260  = 290 - 127.6 = 162.4 ≈ 162
+          7082  → 290 - (7082/13000)*260  = 290 - 141.6 = 148.4 ≈ 148
+          8279  → 290 - (8279/13000)*260  = 290 - 165.6 = 124.4 ≈ 124
+          9652  → 290 - (9652/13000)*260  = 290 - 193.0 = 97.0  ≈ 97
+          10200 → 290 - (10200/13000)*260 = 290 - 204.0 = 86.0  ≈ 86
+          11890 → 290 - (11890/13000)*260 = 290 - 237.8 = 52.2  ≈ 52
+          12521 → 290 - (12521/13000)*260 = 290 - 250.4 = 39.6  ≈ 40
+
+        modules y coords:
+          2  → 290 - (2/45)*260  = 290 - 11.6  = 278.4 ≈ 278
+          8  → 290 - (8/45)*260  = 290 - 46.2  = 243.8 ≈ 244
+          20 → 290 - (20/45)*260 = 290 - 115.6 = 174.4 ≈ 174
+          24 → 290 - (24/45)*260 = 290 - 138.7 = 151.3 ≈ 151
+          25 → 290 - (25/45)*260 = 290 - 144.4 = 145.6 ≈ 146
+          26 → 290 - (26/45)*260 = 290 - 150.2 = 139.8 ≈ 140
+          26 → 140
+          27 → 290 - (27/45)*260 = 290 - 156.0 = 134.0 ≈ 134
+          28 → 290 - (28/45)*260 = 290 - 161.8 = 128.2 ≈ 128
+          30 → 290 - (30/45)*260 = 290 - 173.3 = 116.7 ≈ 117
+          35 → 290 - (35/45)*260 = 290 - 202.2 = 87.8  ≈ 88
+          37 → 290 - (37/45)*260 = 290 - 213.8 = 76.2  ≈ 76
+          39 → 290 - (39/45)*260 = 290 - 225.3 = 64.7  ≈ 65
+      -->
+
+      <!-- Axes -->
+      <line x1="70" y1="30" x2="70"  y2="290" stroke="#333" stroke-width="1"/>
+      <line x1="70" y1="290" x2="740" y2="290" stroke="#333" stroke-width="1"/>
+      <line x1="740" y1="30" x2="740" y2="290" stroke="#333" stroke-width="1"/>
+
+      <!-- Horizontal grid lines (subtle) -->
+      <line x1="70" y1="230" x2="740" y2="230" stroke="rgba(0,209,255,0.1)" stroke-width="0.8" stroke-dasharray="5,5"/>
+      <line x1="70" y1="170" x2="740" y2="170" stroke="rgba(0,209,255,0.1)" stroke-width="0.8" stroke-dasharray="5,5"/>
+      <line x1="70" y1="110" x2="740" y2="110" stroke="rgba(0,209,255,0.1)" stroke-width="0.8" stroke-dasharray="5,5"/>
+      <line x1="70" y1="50"  x2="740" y2="50"  stroke="rgba(0,209,255,0.1)" stroke-width="0.8" stroke-dasharray="5,5"/>
+
+      <!-- Left Y-axis labels (py_lines) -->
+      <text x="64" y="294" fill="#00d1ff" font-size="9" text-anchor="end">0</text>
+      <text x="64" y="234" fill="#00d1ff" font-size="9" text-anchor="end">3k</text>
+      <text x="64" y="174" fill="#00d1ff" font-size="9" text-anchor="end">6k</text>
+      <text x="64" y="114" fill="#00d1ff" font-size="9" text-anchor="end">9k</text>
+      <text x="64" y="54"  fill="#00d1ff" font-size="9" text-anchor="end">12k</text>
+      <text x="64" y="34"  fill="#00d1ff" font-size="8" text-anchor="end">lines</text>
+
+      <!-- Right Y-axis labels (modules) -->
+      <text x="746" y="294" fill="#a78bfa" font-size="9" text-anchor="start">0</text>
+      <text x="746" y="234" fill="#a78bfa" font-size="9" text-anchor="start">15</text>
+      <text x="746" y="174" fill="#a78bfa" font-size="9" text-anchor="start">29</text>
+      <text x="746" y="114" fill="#a78bfa" font-size="9" text-anchor="start">43</text>
+      <text x="746" y="54"  fill="#a78bfa" font-size="9" text-anchor="start">45</text>
+      <text x="746" y="34"  fill="#a78bfa" font-size="8" text-anchor="start">mods</text>
+
+      <!-- X-axis date labels -->
+      <text x="70"  y="308" fill="#666" font-size="8" text-anchor="middle">Feb 11</text>
+      <text x="182" y="308" fill="#666" font-size="8" text-anchor="middle">Feb 13</text>
+      <text x="294" y="308" fill="#666" font-size="8" text-anchor="middle">Feb 14</text>
+      <text x="405" y="308" fill="#666" font-size="8" text-anchor="middle">Feb 15</text>
+      <text x="517" y="308" fill="#666" font-size="8" text-anchor="middle">Feb 16</text>
+      <text x="628" y="308" fill="#666" font-size="8" text-anchor="middle">Feb 17</text>
+      <text x="740" y="308" fill="#666" font-size="8" text-anchor="middle">Feb 18</text>
+
+      <!-- Area fill under py_lines line -->
+      <polygon fill="url(#codeFill)"
+        points="70,278 126,137 182,201 238,190 294,182 349,176 405,162 461,148 517,124 573,97 628,86 684,52 740,40 740,290 70,290"/>
+
+      <!-- py_lines line (cyan) -->
+      <polyline fill="none" stroke="#00d1ff" stroke-width="2.5" stroke-linejoin="round"
+        points="70,278 126,137 182,201 238,190 294,182 349,176 405,162 461,148 517,124 573,97 628,86 684,52 740,40"/>
+      <!-- Glow layer -->
+      <polyline fill="none" stroke="#00d1ff" stroke-width="6" stroke-linejoin="round" opacity="0.12"
+        points="70,278 126,137 182,201 238,190 294,182 349,176 405,162 461,148 517,124 573,97 628,86 684,52 740,40"/>
+
+      <!-- modules line (purple) -->
+      <polyline fill="none" stroke="#a78bfa" stroke-width="2" stroke-linejoin="round" stroke-dasharray="6,3"
+        points="70,278 126,244 182,174 238,151 294,146 349,140 405,140 461,134 517,128 573,117 628,88 684,76 740,65"/>
+      <!-- Glow layer -->
+      <polyline fill="none" stroke="#a78bfa" stroke-width="5" stroke-linejoin="round" opacity="0.1" stroke-dasharray="6,3"
+        points="70,278 126,244 182,174 238,151 294,146 349,140 405,140 461,134 517,128 573,117 628,88 684,76 740,65"/>
+
+      <!-- "Great Refactor" annotation: dip from v0.1 (x=126,y=137) to v2.1 (x=182,y=201) -->
+      <line x1="154" y1="160" x2="154" y2="185" stroke="#ff5f57" stroke-width="1" stroke-dasharray="3,2" opacity="0.7"/>
+      <rect x="98" y="138" width="112" height="22" rx="3" fill="#0a0a0f" stroke="#ff5f57" stroke-width="0.8" opacity="0.85"/>
+      <text x="154" y="152" fill="#ff5f57" font-size="8" text-anchor="middle" font-weight="bold">⬇ Great Refactor</text>
+      <text x="154" y="162" fill="#ff5f57" font-size="7" text-anchor="middle" opacity="0.8">7654 → 4459 lines</text>
+
+      <!-- py_lines dots -->
+      <!-- skeleton -->
+      <circle cx="70"  cy="278" r="4" fill="#00d1ff" stroke="#0a0a0f" stroke-width="1.5" filter="url(#evo-glow)"/>
+      <!-- v0.1.0 — peak before refactor -->
+      <circle cx="126" cy="137" r="5" fill="#ffd700" stroke="#0a0a0f" stroke-width="1.5" filter="url(#evo-glow)"/>
+      <!-- v2.1.0 — Great Refactor low -->
+      <circle cx="182" cy="201" r="5" fill="#ff5f57" stroke="#0a0a0f" stroke-width="1.5" filter="url(#evo-glow)"/>
+      <!-- v2.9.0 -->
+      <circle cx="238" cy="190" r="3.5" fill="#00d1ff" stroke="#0a0a0f" stroke-width="1.5"/>
+      <!-- v2.13.0 -->
+      <circle cx="294" cy="182" r="3.5" fill="#00d1ff" stroke="#0a0a0f" stroke-width="1.5"/>
+      <!-- v2.22.0 -->
+      <circle cx="349" cy="176" r="3.5" fill="#00d1ff" stroke="#0a0a0f" stroke-width="1.5"/>
+      <!-- v2.24.0 -->
+      <circle cx="405" cy="162" r="3.5" fill="#00d1ff" stroke="#0a0a0f" stroke-width="1.5"/>
+      <!-- v4.0.0 -->
+      <circle cx="461" cy="148" r="4.5" fill="#ff00aa" stroke="#0a0a0f" stroke-width="1.5" filter="url(#evo-glow)"/>
+      <!-- v4.8.0 -->
+      <circle cx="517" cy="124" r="3.5" fill="#00d1ff" stroke="#0a0a0f" stroke-width="1.5"/>
+      <!-- v5.0.0 -->
+      <circle cx="573" cy="97"  r="4.5" fill="#ff00aa" stroke="#0a0a0f" stroke-width="1.5" filter="url(#evo-glow)"/>
+      <!-- v5.2.0 -->
+      <circle cx="628" cy="86"  r="3.5" fill="#00d1ff" stroke="#0a0a0f" stroke-width="1.5"/>
+      <!-- v6.0.0 -->
+      <circle cx="684" cy="52"  r="4.5" fill="#ff00aa" stroke="#0a0a0f" stroke-width="1.5" filter="url(#evo-glow)"/>
+      <!-- v6.2.0 — current -->
+      <circle cx="740" cy="40"  r="6"   fill="#ffd700" stroke="#0a0a0f" stroke-width="1.5" filter="url(#evo-glow)"/>
+
+      <!-- Version labels -->
+      <text x="70"  y="270" fill="#666"   font-size="8"  text-anchor="middle">skel</text>
+      <text x="126" y="128" fill="#ffd700" font-size="8"  text-anchor="middle">v0.1</text>
+      <text x="182" y="215" fill="#ff5f57" font-size="8"  text-anchor="middle">v2.1</text>
+      <text x="461" y="140" fill="#ff00aa" font-size="8"  text-anchor="middle">v4.0</text>
+      <text x="573" y="89"  fill="#ff00aa" font-size="8"  text-anchor="middle">v5.0</text>
+      <text x="684" y="44"  fill="#ff00aa" font-size="8"  text-anchor="middle">v6.0</text>
+      <text x="740" y="32"  fill="#ffd700" font-size="9"  text-anchor="middle" font-weight="bold">v6.2</text>
+    </svg>
+    <div class="chart-legend">
+      <div class="chart-legend-item"><span class="legend-line" style="background:#00d1ff"></span> Python lines (left axis)</div>
+      <div class="chart-legend-item"><span class="legend-line" style="background:#a78bfa;border-top:2px dashed #a78bfa;height:0;width:16px"></span> Modules (right axis)</div>
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#ffd700"></span> Key milestone</div>
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#ff00aa"></span> Major version</div>
+      <div class="chart-legend-item"><span class="legend-dot" style="background:#ff5f57"></span> Great Refactor</div>
+    </div>
+  </div>
+</section>
+
 <!-- ARCHITECTURE -->
 <section>
   <h2 class="section-title">The <span class="accent">Body</span></h2>
