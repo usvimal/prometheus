@@ -426,7 +426,7 @@ def _check_budget_limits(
     if budget_pct > 0.5:
         # Hard stop — protect the budget
         finish_reason = f"Task spent ${task_cost:.3f} (>50% of remaining ${budget_remaining_usd:.2f}). Budget exhausted."
-        messages.append({"role": "system", "content": f"[BUDGET LIMIT] {finish_reason} Give your final response now."})
+        messages.append({"role": "user", "content": f"[BUDGET LIMIT] {finish_reason} Give your final response now."})
         try:
             final_msg, final_cost = _call_llm_with_retry(
                 llm, messages, active_model, None, active_effort,
@@ -440,7 +440,7 @@ def _check_budget_limits(
             return finish_reason, accumulated_usage, llm_trace
     elif budget_pct > 0.3 and round_idx % 10 == 0:
         # Soft nudge every 10 rounds when spending is significant
-        messages.append({"role": "system", "content": f"[INFO] Task spent ${task_cost:.3f} of ${budget_remaining_usd:.2f}. Wrap up if possible."})
+        messages.append({"role": "user", "content": f"[INFO] Task spent ${task_cost:.3f} of ${budget_remaining_usd:.2f}. Wrap up if possible."})
 
     return None
 
@@ -483,7 +483,7 @@ def _maybe_inject_self_check(
         f"5. Should I just STOP and return my best result so far?\n\n"
         f"This is not a hard limit — you decide. But be honest with yourself."
     )
-    messages.append({"role": "system", "content": reminder})
+    messages.append({"role": "user", "content": reminder})
     emit_progress(f"🔄 Checkpoint {checkpoint_num} at round {round_idx}: ~{ctx_tokens} tokens, ${task_cost:.2f} spent")
 
 
@@ -535,7 +535,7 @@ def _setup_dynamic_tools(tools_registry, tool_schemas, messages):
     non_core_count = len(tools_registry.list_non_core_tools())
     if non_core_count > 0:
         messages.append({
-            "role": "system",
+            "role": "user",
             "content": (
                 f"Note: You have {len(tool_schemas)} core tools loaded. "
                 f"There are {non_core_count} additional tools available "
@@ -649,7 +649,7 @@ def run_llm_loop(
             # Hard limit on rounds to prevent runaway tasks
             if round_idx > MAX_ROUNDS:
                 finish_reason = f"⚠️ Task exceeded MAX_ROUNDS ({MAX_ROUNDS}). Consider decomposing into subtasks via schedule_task."
-                messages.append({"role": "system", "content": f"[ROUND_LIMIT] {finish_reason}"})
+                messages.append({"role": "user", "content": f"[ROUND_LIMIT] {finish_reason}"})
                 try:
                     final_msg, final_cost = _call_llm_with_retry(
                         llm, messages, active_model, None, active_effort,
