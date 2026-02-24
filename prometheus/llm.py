@@ -359,6 +359,59 @@ class LLMClient:
 
         return msg, usage
 
+    @staticmethod
+    def _flatten_content(content: Any) -> str:
+        """Flatten multipart content (list of dicts) to plain string."""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    parts.append(block.get("text", ""))
+                elif isinstance(block, str):
+                    parts.append(block)
+            return chr(10).join(p for p in parts if p)
+        return str(content or "")
+
+    def _prep_minimax_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert messages to MiniMax-compatible format.
+
+        MiniMax rejects role: system. Convert system messages to user
+        messages and flatten multipart content to plain strings.
+        """
+        result: List[Dict[str, Any]] = []
+        system_text = ""
+
+        for msg in messages:
+            role = msg.get("role", "")
+            if role == "system":
+                # Collect system content — will prepend to first user message
+                system_text += self._flatten_content(msg.get("content", "")) + chr(10)
+                continue
+
+            # Flatten multipart content for non-system messages too
+            new_msg = dict(msg)
+            if isinstance(new_msg.get("content"), list):
+                new_msg["content"] = self._flatten_content(new_msg["content"])
+            result.append(new_msg)
+
+        # Prepend system content to first user message
+        if system_text.strip():
+            for i, msg in enumerate(result):
+                if msg.get("role") == "user":
+                    user_content = self._flatten_content(msg.get("content", ""))
+                    result[i] = {
+                        **msg,
+                        "content": system_text.strip() + chr(10)+chr(10)+"---"+chr(10)+chr(10) + user_content,
+                    }
+                    break
+            else:
+                # No user message found — insert as user message at position 0
+                result.insert(0, {"role": "user", "content": system_text.strip()})
+
+        return result
+
     def _chat_minimax(
         self,
         client: Any,
@@ -370,9 +423,12 @@ class LLMClient:
         tool_choice: str,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """MiniMax chat call via OpenAI-compatible API."""
+        # Convert system messages — MiniMax rejects role: system
+        mm_messages = self._prep_minimax_messages(messages)
+
         kwargs: Dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": mm_messages,
             "max_tokens": max_tokens,
             "extra_body": {"reasoning_split": True},
         }
