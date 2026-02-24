@@ -16,7 +16,7 @@ import logging
 import os
 from typing import Any, Dict, List
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
+from prometheus.tools.registry import ToolContext, ToolEntry
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def _get_vlm_model() -> str:
 
 def _get_llm_client():
     """Lazy-import LLMClient to avoid circular imports."""
-    from ouroboros.llm import LLMClient
+    from prometheus.llm import LLMClient
     return LLMClient()
 
 

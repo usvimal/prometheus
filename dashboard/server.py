@@ -79,7 +79,7 @@ def _build_budget_info(total_budget: float, spent: float) -> dict:
     # Subscription mode
     info: dict = {"mode": "subscription", "spent": round(spent, 4)}
     try:
-        from ouroboros.llm import fetch_minimax_quota
+        from prometheus.llm import fetch_minimax_quota
         quota = fetch_minimax_quota()
         if quota:
             primary = os.environ.get("OUROBOROS_MODEL", "MiniMax-M2.5")

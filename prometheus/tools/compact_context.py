@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
-from ouroboros.tools.registry import ToolEntry
+from prometheus.tools.registry import ToolEntry
 
 log = logging.getLogger(__name__)
 

@@ -11,8 +11,8 @@ import shutil
 import subprocess
 from typing import Any, Dict, List
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
-from ouroboros.utils import utc_now_iso, run_cmd, append_jsonl, truncate_for_log
+from prometheus.tools.registry import ToolContext, ToolEntry
+from prometheus.utils import utc_now_iso, run_cmd, append_jsonl, truncate_for_log
 
 log = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ def _parse_claude_output(stdout: str, ctx: ToolContext) -> str:
 
 def _claude_code_edit(ctx: ToolContext, prompt: str, cwd: str = "") -> str:
     """Delegate code edits to Claude Code CLI."""
-    from ouroboros.tools.git import _acquire_git_lock, _release_git_lock
+    from prometheus.tools.git import _acquire_git_lock, _release_git_lock
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:

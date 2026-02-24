@@ -45,7 +45,7 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
     Returns empty dict on failure.
     """
     import logging
-    log = logging.getLogger("ouroboros.llm")
+    log = logging.getLogger("prometheus.llm")
 
     try:
         import requests
@@ -190,7 +190,7 @@ class LLMClient:
         if not self._codex_init_attempted:
             self._codex_init_attempted = True
             try:
-                from ouroboros.codex_auth import CodexLLMClient
+                from prometheus.codex_auth import CodexLLMClient
                 client = CodexLLMClient()
                 if client.is_authenticated:
                     self._codex_client = client

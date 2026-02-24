@@ -11,7 +11,7 @@ import os
 import pathlib
 from typing import Any, Dict, List, Tuple
 
-from ouroboros.utils import clip_text, estimate_tokens
+from prometheus.utils import clip_text, estimate_tokens
 
 
 _SKIP_EXT = {

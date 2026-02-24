@@ -43,8 +43,8 @@ def ensure_claude_code_cli() -> bool:
 # ----------------------------
 # 0.1) provide apply_patch shim
 # ----------------------------
-from ouroboros.apply_patch import install as install_apply_patch
-from ouroboros.llm import DEFAULT_LIGHT_MODEL
+from prometheus.apply_patch import install as install_apply_patch
+from prometheus.llm import DEFAULT_LIGHT_MODEL
 install_apply_patch()
 
 # ----------------------------
@@ -164,7 +164,7 @@ REPO_DIR.mkdir(parents=True, exist_ok=True)
 
 # Clear stale owner mailbox files from previous session
 try:
-    from ouroboros.owner_inject import get_pending_path
+    from prometheus.owner_inject import get_pending_path
     # Clean legacy global file
     _stale_inject = get_pending_path(DRIVE_ROOT)
     if _stale_inject.exists():
@@ -326,7 +326,7 @@ _watchdog_thread.start()
 # ----------------------------
 # 6.3) Background consciousness
 # ----------------------------
-from ouroboros.consciousness import BackgroundConsciousness
+from prometheus.consciousness import BackgroundConsciousness
 
 def _get_owner_chat_id() -> Optional[int]:
     try:

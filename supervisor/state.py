@@ -115,8 +115,8 @@ def release_file_lock(lock_path: pathlib.Path, lock_fd: Optional[int]) -> None:
         pass
 
 
-# Re-export append_jsonl from ouroboros.utils (single source of truth)
-from ouroboros.utils import append_jsonl  # noqa: F401
+# Re-export append_jsonl from prometheus.utils (single source of truth)
+from prometheus.utils import append_jsonl  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -629,7 +629,7 @@ def status_text(workers_dict: Dict[int, Any], pending_list: list, running_dict: 
     if is_subscription_mode():
         lines.append("budget_mode: subscription")
         try:
-            from ouroboros.llm import fetch_minimax_quota
+            from prometheus.llm import fetch_minimax_quota
             quota = fetch_minimax_quota(force=True)
             if quota:
                 for model_name, mq in quota.items():

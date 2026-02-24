@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any, Dict, List
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
+from prometheus.tools.registry import ToolContext, ToolEntry
 
 
 def _web_search(ctx: ToolContext, query: str) -> str:

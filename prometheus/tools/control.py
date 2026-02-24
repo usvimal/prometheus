@@ -9,8 +9,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
-from ouroboros.utils import utc_now_iso, write_text, run_cmd
+from prometheus.tools.registry import ToolContext, ToolEntry
+from prometheus.utils import utc_now_iso, write_text, run_cmd
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ def _schedule_task(ctx: ToolContext, description: str, context: str = "", parent
         return f"ERROR: Subtask depth limit ({MAX_SUBTASK_DEPTH}) exceeded. Simplify your approach."
 
     if getattr(ctx, 'is_direct_chat', False):
-        from ouroboros.utils import append_jsonl
+        from prometheus.utils import append_jsonl
         try:
             append_jsonl(ctx.drive_logs() / "events.jsonl", {
                 "ts": utc_now_iso(),
@@ -81,14 +81,14 @@ def _request_review(ctx: ToolContext, reason: str) -> str:
 
 
 def _chat_history(ctx: ToolContext, count: int = 100, offset: int = 0, search: str = "") -> str:
-    from ouroboros.memory import Memory
+    from prometheus.memory import Memory
     mem = Memory(drive_root=ctx.drive_root)
     return mem.chat_history(count=count, offset=offset, search=search)
 
 
 def _update_scratchpad(ctx: ToolContext, content: str) -> str:
     """LLM-driven scratchpad update (Constitution P3: LLM-first)."""
-    from ouroboros.memory import Memory
+    from prometheus.memory import Memory
     mem = Memory(drive_root=ctx.drive_root)
     mem.ensure_files()
     mem.save_scratchpad(content)
@@ -111,7 +111,7 @@ def _send_owner_message(ctx: ToolContext, text: str, reason: str = "") -> str:
     if not text or not text.strip():
         return "⚠️ Empty message."
 
-    from ouroboros.utils import append_jsonl
+    from prometheus.utils import append_jsonl
     ctx.pending_events.append({
         "type": "send_message",
         "chat_id": ctx.current_chat_id,
@@ -163,7 +163,7 @@ def _switch_model(ctx: ToolContext, model: str = "", effort: str = "") -> str:
 
     Stored in ToolContext, applied on the next LLM call in the loop.
     """
-    from ouroboros.llm import LLMClient, normalize_reasoning_effort
+    from prometheus.llm import LLMClient, normalize_reasoning_effort
     available = LLMClient().available_models()
     changes = []
 
@@ -215,7 +215,7 @@ def get_tools() -> List[ToolEntry]:
         }, _request_restart),
         ToolEntry("promote_to_stable", {
             "name": "promote_to_stable",
-            "description": "Promote ouroboros -> ouroboros-stable. Call when you consider the code stable.",
+            "description": "Promote current dev branch to stable. Call when you consider the code stable.",
             "parameters": {"type": "object", "properties": {"reason": {"type": "string"}}, "required": ["reason"]},
         }, _promote_to_stable),
         ToolEntry("schedule_task", {

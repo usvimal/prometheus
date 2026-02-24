@@ -10,8 +10,8 @@ import pathlib
 import uuid
 from typing import Any, Dict, List, Tuple
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
-from ouroboros.utils import read_text, safe_relpath, utc_now_iso
+from prometheus.tools.registry import ToolContext, ToolEntry
+from prometheus.utils import read_text, safe_relpath, utc_now_iso
 
 log = logging.getLogger(__name__)
 
@@ -201,7 +201,7 @@ def _codebase_digest(ctx: ToolContext) -> str:
 
 def _summarize_dialogue(ctx: ToolContext, last_n: int = 200) -> str:
     """Summarize dialogue history into key moments, decisions, and creator preferences."""
-    from ouroboros.llm import LLMClient, DEFAULT_LIGHT_MODEL
+    from prometheus.llm import LLMClient, DEFAULT_LIGHT_MODEL
 
     # Read last_n messages from chat.jsonl
     chat_path = ctx.drive_root / "logs" / "chat.jsonl"
@@ -315,7 +315,7 @@ Now write a comprehensive summary:"""
 
 def _forward_to_worker(ctx: ToolContext, task_id: str, message: str) -> str:
     """Forward a message to a running worker task's mailbox."""
-    from ouroboros.owner_inject import write_owner_message
+    from prometheus.owner_inject import write_owner_message
     write_owner_message(ctx.drive_root, message, task_id=task_id, msg_id=uuid.uuid4().hex)
     return f"Message forwarded to task {task_id}"
 

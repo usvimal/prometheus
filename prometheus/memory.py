@@ -13,7 +13,7 @@ import pathlib
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
-from ouroboros.utils import utc_now_iso, read_text, write_text, append_jsonl, short
+from prometheus.utils import utc_now_iso, read_text, write_text, append_jsonl, short
 
 log = logging.getLogger(__name__)
 

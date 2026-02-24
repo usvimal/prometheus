@@ -382,7 +382,7 @@ def _format_budget_line(st: Dict[str, Any]) -> str:
     if total <= 0:
         # Subscription mode — show real quota from MiniMax API
         try:
-            from ouroboros.llm import fetch_minimax_quota
+            from prometheus.llm import fetch_minimax_quota
             quota = fetch_minimax_quota()
             if quota:
                 primary_model = os.environ.get("OUROBOROS_MODEL", "MiniMax-M2.5")

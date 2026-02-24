@@ -10,8 +10,8 @@ import asyncio
 import logging
 import httpx
 
-from ouroboros.utils import utc_now_iso
-from ouroboros.tools.registry import ToolEntry, ToolContext
+from prometheus.utils import utc_now_iso
+from prometheus.tools.registry import ToolEntry, ToolContext
 
 
 log = logging.getLogger(__name__)

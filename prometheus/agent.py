@@ -21,17 +21,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
-from ouroboros.utils import (
+from prometheus.utils import (
     utc_now_iso, read_text, append_jsonl,
     safe_relpath, truncate_for_log,
     get_git_info, sanitize_task_for_event,
 )
-from ouroboros.llm import LLMClient, add_usage
-from ouroboros.tools import ToolRegistry
-from ouroboros.tools.registry import ToolContext
-from ouroboros.memory import Memory
-from ouroboros.context import build_llm_messages
-from ouroboros.loop import run_llm_loop
+from prometheus.llm import LLMClient, add_usage
+from prometheus.tools import ToolRegistry
+from prometheus.tools.registry import ToolContext
+from prometheus.memory import Memory
+from prometheus.context import build_llm_messages
+from prometheus.loop import run_llm_loop
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ _worker_boot_lock = threading.Lock()
 class Env:
     repo_dir: pathlib.Path
     drive_root: pathlib.Path
-    branch_dev: str = "ouroboros"
+    branch_dev: str = "main"
 
     def repo_path(self, rel: str) -> pathlib.Path:
         return (self.repo_dir / safe_relpath(rel)).resolve()
@@ -448,7 +448,7 @@ class OuroborosAgent:
             self._busy = False
             # Clean up browser if it was used during this task
             try:
-                from ouroboros.tools.browser import cleanup_browser
+                from prometheus.tools.browser import cleanup_browser
                 cleanup_browser(self.tools._ctx)
             except Exception:
                 log.debug("Failed to cleanup browser", exc_info=True)
@@ -561,7 +561,7 @@ class OuroborosAgent:
     def _build_review_context(self) -> str:
         """Collect code snapshot + complexity metrics for review tasks."""
         try:
-            from ouroboros.review import collect_sections, compute_complexity_metrics, format_metrics
+            from prometheus.review import collect_sections, compute_complexity_metrics, format_metrics
             sections, stats = collect_sections(self.env.repo_dir, self.env.drive_root)
             metrics = compute_complexity_metrics(sections)
 

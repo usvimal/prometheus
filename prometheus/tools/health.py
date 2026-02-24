@@ -5,7 +5,7 @@ import os
 import pathlib
 from typing import Any, Dict
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
+from prometheus.tools.registry import ToolContext, ToolEntry
 
 log = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 def _codebase_health(ctx: ToolContext) -> str:
     """Compute and format codebase health report."""
     try:
-        from ouroboros.review import collect_sections, compute_complexity_metrics
+        from prometheus.review import collect_sections, compute_complexity_metrics
 
         repo_dir = pathlib.Path(ctx.repo_dir)
         drive_root = pathlib.Path(os.environ.get("DRIVE_ROOT", "/content/drive/MyDrive/Ouroboros"))

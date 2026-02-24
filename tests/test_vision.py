@@ -15,7 +15,7 @@ class TestLLMVisionQuery(unittest.TestCase):
 
     def test_vision_query_url_format(self):
         """vision_query builds correct message format for URL images."""
-        from ouroboros.llm import LLMClient
+        from prometheus.llm import LLMClient
 
         client = LLMClient(api_key="test-key")
 
@@ -46,7 +46,7 @@ class TestLLMVisionQuery(unittest.TestCase):
 
     def test_vision_query_base64_format(self):
         """vision_query builds correct data URI for base64 images."""
-        from ouroboros.llm import LLMClient
+        from prometheus.llm import LLMClient
 
         client = LLMClient(api_key="test-key")
         captured_messages = []
@@ -71,7 +71,7 @@ class TestLLMVisionQuery(unittest.TestCase):
 
     def test_vision_query_multiple_images(self):
         """vision_query handles multiple images in one call."""
-        from ouroboros.llm import LLMClient
+        from prometheus.llm import LLMClient
 
         client = LLMClient(api_key="test-key")
         captured_messages = []
@@ -95,7 +95,7 @@ class TestLLMVisionQuery(unittest.TestCase):
 
     def test_vision_query_empty_images(self):
         """vision_query works with no images (just text)."""
-        from ouroboros.llm import LLMClient
+        from prometheus.llm import LLMClient
 
         client = LLMClient(api_key="test-key")
 
@@ -112,7 +112,7 @@ class TestAnalyzeScreenshotTool(unittest.TestCase):
     """Test the analyze_screenshot tool."""
 
     def _make_ctx(self, with_screenshot=True):
-        from ouroboros.tools.registry import ToolContext, BrowserState
+        from prometheus.tools.registry import ToolContext, BrowserState
         ctx = MagicMock(spec=ToolContext)
         ctx.browser_state = BrowserState()
         ctx.event_queue = None
@@ -126,7 +126,7 @@ class TestAnalyzeScreenshotTool(unittest.TestCase):
 
     def test_no_screenshot_returns_warning(self):
         """analyze_screenshot returns warning when no screenshot available."""
-        from ouroboros.tools.vision import _analyze_screenshot
+        from prometheus.tools.vision import _analyze_screenshot
 
         ctx = self._make_ctx(with_screenshot=False)
         result = _analyze_screenshot(ctx, prompt="What do you see?")
@@ -135,11 +135,11 @@ class TestAnalyzeScreenshotTool(unittest.TestCase):
 
     def test_analyze_screenshot_calls_vlm(self):
         """analyze_screenshot calls VLM with the screenshot base64."""
-        from ouroboros.tools.vision import _analyze_screenshot
+        from prometheus.tools.vision import _analyze_screenshot
 
         ctx = self._make_ctx(with_screenshot=True)
 
-        with patch("ouroboros.tools.vision._get_llm_client") as mock_get_client:
+        with patch("prometheus.tools.vision._get_llm_client") as mock_get_client:
             mock_client = MagicMock()
             mock_client.vision_query.return_value = ("Beautiful UI.", {"prompt_tokens": 100, "completion_tokens": 20})
             mock_get_client.return_value = mock_client
@@ -159,7 +159,7 @@ class TestVlmQueryTool(unittest.TestCase):
     """Test the vlm_query tool."""
 
     def _make_ctx(self):
-        from ouroboros.tools.registry import ToolContext, BrowserState
+        from prometheus.tools.registry import ToolContext, BrowserState
         ctx = MagicMock(spec=ToolContext)
         ctx.browser_state = BrowserState()
         ctx.event_queue = None
@@ -169,7 +169,7 @@ class TestVlmQueryTool(unittest.TestCase):
 
     def test_vlm_query_requires_image(self):
         """vlm_query returns error when no image provided."""
-        from ouroboros.tools.vision import _vlm_query
+        from prometheus.tools.vision import _vlm_query
 
         ctx = self._make_ctx()
         result = _vlm_query(ctx, prompt="What is this?")
@@ -177,11 +177,11 @@ class TestVlmQueryTool(unittest.TestCase):
 
     def test_vlm_query_with_url(self):
         """vlm_query calls VLM with URL image."""
-        from ouroboros.tools.vision import _vlm_query
+        from prometheus.tools.vision import _vlm_query
 
         ctx = self._make_ctx()
 
-        with patch("ouroboros.tools.vision._get_llm_client") as mock_get_client:
+        with patch("prometheus.tools.vision._get_llm_client") as mock_get_client:
             mock_client = MagicMock()
             mock_client.vision_query.return_value = ("A logo.", {})
             mock_get_client.return_value = mock_client
@@ -196,7 +196,7 @@ class TestVlmQueryTool(unittest.TestCase):
     def test_vlm_query_tool_registered(self):
         """vlm_query and analyze_screenshot tools are properly registered."""
         import pathlib
-        from ouroboros.tools.registry import ToolRegistry
+        from prometheus.tools.registry import ToolRegistry
 
         registry = ToolRegistry(
             repo_dir=pathlib.Path("/tmp"),

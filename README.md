@@ -42,7 +42,7 @@ Telegram --> colab_launcher.py
               git_ops.py            -- git operations
               events.py             -- event dispatch
                 |
-            ouroboros/               (agent core)
+            prometheus/              (agent core)
               agent.py              -- thin orchestrator
               consciousness.py      -- background thinking loop
               context.py            -- LLM context, prompt caching
@@ -215,11 +215,10 @@ Full text: [BIBLE.md](BIBLE.md)
 
 ## Branches
 
-| Branch | Location | Purpose |
-|--------|----------|---------|
-| `main` | Public repo | Stable release. Open for contributions. |
-| `ouroboros` | Your fork | Created at first boot. All agent commits here. |
-| `ouroboros-stable` | Your fork | Created at first boot. Crash fallback via `promote_to_stable`. |
+| Branch | Purpose |
+|--------|---------|
+| `main` | Working branch. All agent commits go here. |
+| `main-stable` | Crash fallback via `promote_to_stable`. |
 
 ---
 

@@ -25,7 +25,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 _VERSION_RE = re.compile(r"v(\d+\.\d+\.\d+)")
-_REPO_DIR = Path(os.environ.get("OUROBOROS_REPO_DIR", "/content/ouroboros_repo"))
+_REPO_DIR = Path(os.environ.get("PROMETHEUS_REPO_DIR", str(Path.home() / "prometheus" / "repo")))
 
 # How many data-points to generate (sampled across full history)
 MAX_POINTS = 100
@@ -348,7 +348,7 @@ def _push_to_github(data: dict[str, Any]) -> str:
     repo = os.environ.get("GITHUB_REPO", "")
     repo_slug = f"{user}/{repo}"
     file_path = "docs/evolution.json"
-    branch = os.environ.get("GITHUB_BRANCH", "ouroboros")
+    branch = os.environ.get("GITHUB_BRANCH", "main")
 
     url = f"https://api.github.com/repos/{repo_slug}/contents/{file_path}"
     headers = {
@@ -407,7 +407,7 @@ def generate_evolution_stats() -> str:
 
 def get_tools():
     """Auto-discovery entry point for ToolRegistry."""
-    from ouroboros.tools.registry import ToolEntry
+    from prometheus.tools.registry import ToolEntry
 
     return [
         ToolEntry(

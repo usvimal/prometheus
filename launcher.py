@@ -45,8 +45,8 @@ if _CONFIG_FILE.exists():
 # ----------------------------
 # 0.1) provide apply_patch shim
 # ----------------------------
-from ouroboros.apply_patch import install as install_apply_patch
-from ouroboros.llm import DEFAULT_LIGHT_MODEL
+from prometheus.apply_patch import install as install_apply_patch
+from prometheus.llm import DEFAULT_LIGHT_MODEL
 install_apply_patch()
 
 
@@ -137,7 +137,7 @@ REPO_DIR.mkdir(parents=True, exist_ok=True)
 
 # Clear stale owner mailbox files from previous session
 try:
-    from ouroboros.owner_inject import get_pending_path
+    from prometheus.owner_inject import get_pending_path
     _stale_inject = get_pending_path(DRIVE_ROOT)
     if _stale_inject.exists():
         _stale_inject.unlink(missing_ok=True)
@@ -155,8 +155,8 @@ if not CHAT_LOG_PATH.exists():
 # ----------------------------
 # 3) Git constants
 # ----------------------------
-BRANCH_DEV = get_cfg("PROMETHEUS_BRANCH_DEV", default="ouroboros")
-BRANCH_STABLE = get_cfg("PROMETHEUS_BRANCH_STABLE", default="ouroboros-stable")
+BRANCH_DEV = get_cfg("PROMETHEUS_BRANCH_DEV", default="main")
+BRANCH_STABLE = get_cfg("PROMETHEUS_BRANCH_STABLE", default="main-stable")
 REMOTE_URL = f"https://{GITHUB_TOKEN}:x-oauth-basic@github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
 
 # ----------------------------
@@ -296,7 +296,7 @@ _watchdog_thread.start()
 # ----------------------------
 # 6.3) Background consciousness
 # ----------------------------
-from ouroboros.consciousness import BackgroundConsciousness
+from prometheus.consciousness import BackgroundConsciousness
 
 
 def _get_owner_chat_id() -> Optional[int]:
@@ -400,7 +400,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     # /login — Codex OAuth flow via Telegram
     if lowered.startswith("/login"):
         try:
-            from ouroboros.codex_auth import get_login_url, exchange_code_for_tokens, save_auth
+            from prometheus.codex_auth import get_login_url, exchange_code_for_tokens, save_auth
             url, verifier, state = get_login_url()
             _pending_oauth["code_verifier"] = verifier
             _pending_oauth["state"] = state
@@ -415,7 +415,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     # /callback — Complete OAuth flow
     if lowered.startswith("/callback"):
         try:
-            from ouroboros.codex_auth import exchange_code_for_tokens, save_auth
+            from prometheus.codex_auth import exchange_code_for_tokens, save_auth
             from urllib.parse import urlparse, parse_qs
             parts = text.strip().split(maxsplit=1)
             if len(parts) < 2:

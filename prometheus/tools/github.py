@@ -8,7 +8,7 @@ import os
 import subprocess
 from typing import Any, Dict, List, Optional
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
+from prometheus.tools.registry import ToolContext, ToolEntry
 
 log = logging.getLogger(__name__)
 

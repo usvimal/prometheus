@@ -2,7 +2,7 @@
 Ouroboros — Shared utilities.
 
 Single source for helper functions used across all modules.
-Does not import anything from ouroboros.* (zero dependency level).
+Does not import anything from prometheus.* (zero dependency level).
 """
 
 from __future__ import annotations

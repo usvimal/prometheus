@@ -9,8 +9,8 @@ import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
-from ouroboros.utils import utc_now_iso, write_text, safe_relpath, run_cmd
+from prometheus.tools.registry import ToolContext, ToolEntry
+from prometheus.utils import utc_now_iso, write_text, safe_relpath, run_cmd
 
 log = logging.getLogger(__name__)
 
@@ -226,7 +226,7 @@ def get_tools() -> List[ToolEntry]:
     return [
         ToolEntry("repo_write_commit", {
             "name": "repo_write_commit",
-            "description": "Write one file + commit + push to ouroboros branch. For small deterministic edits.",
+            "description": "Write one file + commit + push to dev branch. For small deterministic edits.",
             "parameters": {"type": "object", "properties": {
                 "path": {"type": "string"},
                 "content": {"type": "string"},

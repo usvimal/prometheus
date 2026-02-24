@@ -14,10 +14,10 @@ import os
 import pathlib
 from typing import Any, Dict, List, Optional, Tuple
 
-from ouroboros.utils import (
+from prometheus.utils import (
     utc_now_iso, read_text, clip_text, estimate_tokens, get_git_info,
 )
-from ouroboros.memory import Memory
+from prometheus.memory import Memory
 
 log = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def _build_runtime_section(env: Any, task: Dict[str, Any]) -> str:
         total_usd = float(os.environ.get("TOTAL_BUDGET", "0"))
         if total_usd <= 0:
             # Subscription mode — show actual quota from MiniMax API
-            from ouroboros.llm import fetch_minimax_quota
+            from prometheus.llm import fetch_minimax_quota
             quota = fetch_minimax_quota()
             if quota:
                 # Find the primary model's quota
@@ -670,7 +670,7 @@ def compact_tool_history_llm(messages: list, keep_recent: int = 6) -> list:
     )
 
     try:
-        from ouroboros.llm import LLMClient, DEFAULT_LIGHT_MODEL
+        from prometheus.llm import LLMClient, DEFAULT_LIGHT_MODEL
         light_model = os.environ.get("OUROBOROS_MODEL_LIGHT") or DEFAULT_LIGHT_MODEL
         client = LLMClient()
         resp_msg, _usage = client.chat(

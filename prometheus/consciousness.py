@@ -27,11 +27,11 @@ import time
 import traceback
 from typing import Any, Callable, Dict, List, Optional
 
-from ouroboros.utils import (
+from prometheus.utils import (
     utc_now_iso, read_text, append_jsonl, clip_text,
     truncate_for_log, sanitize_tool_result_for_log, sanitize_tool_args_for_log,
 )
-from ouroboros.llm import LLMClient, DEFAULT_LIGHT_MODEL
+from prometheus.llm import LLMClient, DEFAULT_LIGHT_MODEL
 
 log = logging.getLogger(__name__)
 
@@ -348,7 +348,7 @@ class BackgroundConsciousness:
                 # Subscription mode — show real quota from MiniMax API
                 runtime_lines.append("Budget mode: subscription (unlimited)")
                 try:
-                    from ouroboros.llm import fetch_minimax_quota
+                    from prometheus.llm import fetch_minimax_quota
                     quota = fetch_minimax_quota()
                     if quota:
                         for model_name, mq in quota.items():
@@ -393,7 +393,7 @@ class BackgroundConsciousness:
 
     def _build_registry(self) -> "ToolRegistry":
         """Create a ToolRegistry scoped to consciousness-allowed tools."""
-        from ouroboros.tools.registry import ToolRegistry, ToolContext, ToolEntry
+        from prometheus.tools.registry import ToolRegistry, ToolContext, ToolEntry
 
         registry = ToolRegistry(repo_dir=self._repo_dir, drive_root=self._drive_root)
 

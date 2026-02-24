@@ -4,10 +4,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
+from prometheus.tools.registry import ToolContext, ToolEntry
 
 if TYPE_CHECKING:
-    from ouroboros.tools.registry import ToolRegistry
+    from prometheus.tools.registry import ToolRegistry
 
 log = logging.getLogger(__name__)
 

@@ -27,15 +27,15 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Module-level config (set via init())
 # ---------------------------------------------------------------------------
-REPO_DIR: pathlib.Path = pathlib.Path("/content/ouroboros_repo")
-DRIVE_ROOT: pathlib.Path = pathlib.Path("/content/drive/MyDrive/Ouroboros")
+REPO_DIR: pathlib.Path = pathlib.Path.home() / "prometheus" / "repo"
+DRIVE_ROOT: pathlib.Path = pathlib.Path.home() / "prometheus" / "data"
 REMOTE_URL: str = ""
-BRANCH_DEV: str = "ouroboros"
-BRANCH_STABLE: str = "ouroboros-stable"
+BRANCH_DEV: str = "main"
+BRANCH_STABLE: str = "main-stable"
 
 
 def init(repo_dir: pathlib.Path, drive_root: pathlib.Path, remote_url: str,
-         branch_dev: str = "ouroboros", branch_stable: str = "ouroboros-stable") -> None:
+         branch_dev: str = "main", branch_stable: str = "main-stable") -> None:
     global REPO_DIR, DRIVE_ROOT, REMOTE_URL, BRANCH_DEV, BRANCH_STABLE
     REPO_DIR = repo_dir
     DRIVE_ROOT = drive_root
@@ -60,8 +60,8 @@ def ensure_repo_present() -> None:
     else:
         subprocess.run(["git", "remote", "set-url", "origin", REMOTE_URL],
                         cwd=str(REPO_DIR), check=True)
-    subprocess.run(["git", "config", "user.name", "Ouroboros"], cwd=str(REPO_DIR), check=True)
-    subprocess.run(["git", "config", "user.email", "ouroboros@users.noreply.github.com"],
+    subprocess.run(["git", "config", "user.name", "Prometheus"], cwd=str(REPO_DIR), check=True)
+    subprocess.run(["git", "config", "user.email", "prometheus@users.noreply.github.com"],
                     cwd=str(REPO_DIR), check=True)
     subprocess.run(["git", "fetch", "origin"], cwd=str(REPO_DIR), check=True)
 
@@ -353,7 +353,7 @@ def sync_runtime_dependencies(reason: str) -> Tuple[bool, str]:
 
 def import_test() -> Dict[str, Any]:
     r = subprocess.run(
-        ["python3", "-c", "import ouroboros, ouroboros.agent; print('import_ok')"],
+        ["python3", "-c", "import prometheus, prometheus.agent; print('import_ok')"],
         cwd=str(REPO_DIR),
         capture_output=True, text=True,
     )
