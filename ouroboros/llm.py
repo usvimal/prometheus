@@ -117,6 +117,58 @@ def _is_minimax_model(model: str) -> bool:
     return model.lower().startswith("minimax-")
 
 
+# ---------------------------------------------------------------------------
+# MiniMax coding plan quota
+# ---------------------------------------------------------------------------
+_minimax_quota_cache: Dict[str, Any] = {}
+_minimax_quota_ts: float = 0.0
+_MINIMAX_QUOTA_TTL: float = 60.0  # Cache for 60 seconds
+
+
+def fetch_minimax_quota(force: bool = False) -> Optional[Dict[str, Any]]:
+    """Fetch remaining quota from MiniMax coding plan API.
+
+    Returns dict like:
+      {"MiniMax-M2.5": {"total": 4500, "used": 123, "remaining": 4377, "window_remaining_sec": 14275}}
+    or None on error.  Cached for 60s.
+    """
+    global _minimax_quota_cache, _minimax_quota_ts
+    now = time.time()
+    if not force and _minimax_quota_cache and (now - _minimax_quota_ts) < _MINIMAX_QUOTA_TTL:
+        return _minimax_quota_cache
+
+    api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    if not api_key:
+        return None
+    try:
+        import urllib.request
+        import json as _json
+        req = urllib.request.Request(
+            "https://api.minimax.io/v1/api/openplatform/coding_plan/remains",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        if data.get("base_resp", {}).get("status_code") != 0:
+            log.warning("MiniMax quota API error: %s", data.get("base_resp"))
+            return None
+        result = {}
+        for m in data.get("model_remains", []):
+            name = m.get("model_name", "")
+            result[name] = {
+                "total": m.get("current_interval_total_count", 0),
+                "used": m.get("current_interval_usage_count", 0),
+                "remaining": m.get("current_interval_total_count", 0) - m.get("current_interval_usage_count", 0),
+                "window_remaining_sec": int(m.get("remains_time", 0)) // 1000,
+            }
+        _minimax_quota_cache = result
+        _minimax_quota_ts = now
+        return result
+    except Exception as e:
+        log.debug("Failed to fetch MiniMax quota: %s", e)
+        return None
+
+
 class LLMClient:
     """Tri-backend LLM client: Codex + MiniMax + OpenRouter."""
 

@@ -627,8 +627,17 @@ def status_text(workers_dict: Dict[int, Any], pending_list: list, running_dict: 
         lines.append("queue_warning: running>0 while busy=0")
     spent = float(st.get("spent_usd") or 0.0)
     if is_subscription_mode():
-        lines.append("budget_mode: subscription (unlimited)")
-        lines.append(f"spent_usd_this_window: ${spent:.2f}")
+        lines.append("budget_mode: subscription")
+        try:
+            from ouroboros.llm import fetch_minimax_quota
+            quota = fetch_minimax_quota(force=True)
+            if quota:
+                for model_name, mq in quota.items():
+                    lines.append(
+                        f"quota_{model_name}: {mq['remaining']}/{mq['total']} calls "
+                        f"(resets in {mq['window_remaining_sec'] // 60}m)")
+        except Exception:
+            pass
     else:
         pct = budget_pct(st)
         budget_remaining_usd = max(0, TOTAL_BUDGET_LIMIT - spent)

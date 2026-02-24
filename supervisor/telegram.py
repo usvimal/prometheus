@@ -380,9 +380,19 @@ def _format_budget_line(st: Dict[str, Any]) -> str:
     sha = (st.get("current_sha") or "")[:8]
     branch = st.get("current_branch") or "?"
     if total <= 0:
-        # Subscription mode — show usage this window only
+        # Subscription mode — show real quota from MiniMax API
+        try:
+            from ouroboros.llm import fetch_minimax_quota
+            quota = fetch_minimax_quota()
+            if quota:
+                primary_model = os.environ.get("OUROBOROS_MODEL", "MiniMax-M2.5")
+                mq = quota.get(primary_model) or next(iter(quota.values()), None)
+                if mq:
+                    return f"—\nSubscription | {mq['remaining']}/{mq['total']} calls left | {branch}@{sha}"
+        except Exception:
+            pass
         calls = int(st.get("spent_calls") or 0)
-        return f"—\nSubscription | ~${spent:.4f} ({calls} calls) | {branch}@{sha}"
+        return f"—\nSubscription | {calls} calls this window | {branch}@{sha}"
     pct = (spent / total * 100.0) if total > 0 else 0.0
     return f"—\nBudget: ${spent:.4f} / ${total:.2f} ({pct:.2f}%) | {branch}@{sha}"
 

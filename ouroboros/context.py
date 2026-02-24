@@ -73,8 +73,25 @@ def _build_runtime_section(env: Any, task: Dict[str, Any]) -> str:
         spent_usd = float(state_data.get("spent_usd", 0))
         total_usd = float(os.environ.get("TOTAL_BUDGET", "0"))
         if total_usd <= 0:
-            # Subscription mode — no hard limit, track usage for info only
-            budget_info = {"mode": "subscription", "spent_usd_this_window": spent_usd, "limit": "unlimited"}
+            # Subscription mode — show actual quota from MiniMax API
+            from ouroboros.llm import fetch_minimax_quota
+            quota = fetch_minimax_quota()
+            if quota:
+                # Find the primary model's quota
+                primary_model = os.environ.get("OUROBOROS_MODEL", "MiniMax-M2.5")
+                model_quota = quota.get(primary_model) or next(iter(quota.values()), None)
+                if model_quota:
+                    budget_info = {
+                        "mode": "subscription",
+                        "calls_remaining": model_quota["remaining"],
+                        "calls_total": model_quota["total"],
+                        "calls_used": model_quota["used"],
+                        "window_resets_in_sec": model_quota["window_remaining_sec"],
+                    }
+                else:
+                    budget_info = {"mode": "subscription", "limit": "unlimited"}
+            else:
+                budget_info = {"mode": "subscription", "limit": "unlimited"}
         else:
             remaining_usd = total_usd - spent_usd
             budget_info = {"total_usd": total_usd, "spent_usd": spent_usd, "remaining_usd": remaining_usd}

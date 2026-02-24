@@ -131,11 +131,20 @@ async function refresh() {
     $('statusDot').className = 'status-dot';
     const b = status.budget;
     if (b.mode === 'subscription') {
-      $('budgetSpent').textContent = `$${b.spent.toFixed(2)} this window`;
-      $('budgetRemaining').textContent = 'Unlimited';
-      $('budgetTotal').textContent = 'Subscription';
-      $('budgetFill').style.width = '100%';
-      $('budgetFill').style.background = 'var(--blue)';
+      if (b.calls_remaining != null) {
+        $('budgetSpent').textContent = `${b.calls_used} / ${b.calls_total} calls used`;
+        $('budgetRemaining').textContent = `${b.calls_remaining} calls left`;
+        $('budgetTotal').textContent = `Resets in ${b.window_resets_in_min}m`;
+        const pct = Math.min(100, (b.calls_used / b.calls_total) * 100);
+        $('budgetFill').style.width = pct + '%';
+        $('budgetFill').style.background = pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--accent)' : 'var(--blue)';
+      } else {
+        $('budgetSpent').textContent = `$${b.spent.toFixed(2)}`;
+        $('budgetRemaining').textContent = 'Unlimited';
+        $('budgetTotal').textContent = 'Subscription';
+        $('budgetFill').style.width = '100%';
+        $('budgetFill').style.background = 'var(--blue)';
+      }
     } else {
       $('budgetSpent').textContent = `$${b.spent.toFixed(2)}`;
       $('budgetRemaining').textContent = `$${b.remaining.toFixed(2)}`;

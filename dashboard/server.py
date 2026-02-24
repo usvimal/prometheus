@@ -66,6 +66,34 @@ def _tail_jsonl(path: pathlib.Path, max_lines: int = 100) -> List[Dict[str, Any]
         return []
 
 
+def _build_budget_info(total_budget: float, spent: float) -> dict:
+    """Build budget dict for API, with MiniMax quota in subscription mode."""
+    if total_budget > 0:
+        return {
+            "mode": "usage",
+            "total": total_budget,
+            "spent": round(spent, 4),
+            "remaining": round(max(0, total_budget - spent), 4),
+            "pct": round((spent / total_budget * 100), 1),
+        }
+    # Subscription mode
+    info: dict = {"mode": "subscription", "spent": round(spent, 4)}
+    try:
+        from ouroboros.llm import fetch_minimax_quota
+        quota = fetch_minimax_quota()
+        if quota:
+            primary = os.environ.get("OUROBOROS_MODEL", "MiniMax-M2.5")
+            mq = quota.get(primary) or next(iter(quota.values()), None)
+            if mq:
+                info["calls_remaining"] = mq["remaining"]
+                info["calls_total"] = mq["total"]
+                info["calls_used"] = mq["used"]
+                info["window_resets_in_min"] = mq["window_remaining_sec"] // 60
+    except Exception:
+        pass
+    return info
+
+
 # ----- API Routes -----
 
 @app.get("/api/status")
@@ -79,13 +107,7 @@ def get_status():
         "owner_id": st.get("owner_id"),
         "branch": st.get("current_branch"),
         "sha": st.get("current_sha"),
-        "budget": {
-            "mode": "subscription" if total_budget <= 0 else "usage",
-            "total": total_budget if total_budget > 0 else None,
-            "spent": round(spent, 4),
-            "remaining": round(max(0, total_budget - spent), 4) if total_budget > 0 else None,
-            "pct": round((spent / total_budget * 100) if total_budget > 0 else 0, 1),
-        },
+        "budget": _build_budget_info(total_budget, spent),
         "tokens": {
             "prompt": st.get("spent_tokens_prompt", 0),
             "completion": st.get("spent_tokens_completion", 0),
