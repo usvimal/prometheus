@@ -256,9 +256,9 @@ class OuroborosAgent:
             state_data = json.loads(read_text(state_path))
             total_budget_str = os.environ.get("TOTAL_BUDGET", "")
 
-            # Handle unset or zero budget gracefully
-            if not total_budget_str or float(total_budget_str) == 0:
-                return {"status": "unconfigured"}, 0
+            # Handle subscription mode (TOTAL_BUDGET=0) or unset
+            if not total_budget_str or float(total_budget_str) <= 0:
+                return {"status": "ok", "mode": "subscription"}, 0
             else:
                 total_budget = float(total_budget_str)
                 spent = float(state_data.get("spent_usd", 0))
