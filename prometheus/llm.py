@@ -371,14 +371,18 @@ class LLMClient:
                     parts.append(block.get("text", ""))
                 elif isinstance(block, str):
                     parts.append(block)
-            return chr(10).join(p for p in parts if p)
-        return str(content or "")
+            return "".join(parts)
+        return str(content) if content else ""
 
     def _prep_minimax_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Convert messages to MiniMax-compatible format.
+        """
+        Prepare messages for MiniMax API.
 
         MiniMax rejects role: system. Convert system messages to user
         messages and flatten multipart content to plain strings.
+        
+        DEFENSIVE: Also strip any remaining system messages that might
+        have slipped through (e.g., from compaction or message mutations).
         """
         result: List[Dict[str, Any]] = []
         system_text = ""
@@ -410,7 +414,32 @@ class LLMClient:
                 # No user message found — insert as user message at position 0
                 result.insert(0, {"role": "user", "content": system_text.strip()})
 
-        return result
+        # DEFENSIVE: Final pass to strip any remaining system role messages
+        # This catches cases where system messages might slip through due to
+        # message mutations or compaction bugs
+        final_result: List[Dict[str, Any]] = []
+        for msg in result:
+            if msg.get("role") == "system":
+                # Convert system to user - prepend content to next available user message
+                sys_content = self._flatten_content(msg.get("content", ""))
+                if sys_content.strip():
+                    # Try to append to last user message
+                    found_user = False
+                    for i in range(len(final_result) - 1, -1, -1):
+                        if final_result[i].get("role") == "user":
+                            final_result[i] = {
+                                **final_result[i],
+                                "content": final_result[i].get("content", "") + chr(10) + chr(10) + "[SYSTEM]: " + sys_content.strip()
+                            }
+                            found_user = True
+                            break
+                    if not found_user:
+                        # No user message, create new one
+                        final_result.append({"role": "user", "content": "[SYSTEM]: " + sys_content.strip()})
+            else:
+                final_result.append(msg)
+        
+        return final_result
 
     def _chat_minimax(
         self,
@@ -430,98 +459,64 @@ class LLMClient:
             "model": model,
             "messages": mm_messages,
             "max_tokens": max_tokens,
-            "extra_body": {"reasoning_split": True},
         }
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice
+
+        # Map reasoning effort to MiniMax's format
+        # MiniMax uses specific values: "none", "normal" (default), "instant"
+        # Map: none->none, minimal->none, low->none, medium->normal, high->instant, xhigh->instant
+        effort_map = {
+            "none": "none",
+            "minimal": "none", 
+            "low": "none",
+            "medium": "normal",
+            "high": "instant",
+            "xhigh": "instant",
+        }
+        mm_effort = effort_map.get(reasoning_effort, "normal")
+        if mm_effort != "normal":
+            kwargs["reasoning_effort"] = mm_effort
 
         resp = client.chat.completions.create(**kwargs)
         resp_dict = resp.model_dump()
         usage = resp_dict.get("usage") or {}
         choices = resp_dict.get("choices") or [{}]
         msg = (choices[0] if choices else {}).get("message") or {}
+
         return msg, usage
 
-    def vision_query(
-        self,
-        prompt: str,
-        images: List[Dict[str, Any]],
-        model: str = "anthropic/claude-sonnet-4.6",
-        max_tokens: int = 1024,
-        reasoning_effort: str = "low",
-    ) -> Tuple[str, Dict[str, Any]]:
-        """
-        Send a vision query to an LLM. Lightweight — no tools, no loop.
-
-        Args:
-            prompt: Text instruction for the model
-            images: List of image dicts. Each dict must have either:
-                - {"url": "https://..."} — for URL images
-                - {"base64": "<b64>", "mime": "image/png"} — for base64 images
-            model: VLM-capable model ID
-            max_tokens: Max response tokens
-            reasoning_effort: Effort level
-
-        Returns:
-            (text_response, usage_dict)
-        """
-        # Build multipart content
-        content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
-        for img in images:
-            if "url" in img:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": img["url"]},
-                })
-            elif "base64" in img:
-                mime = img.get("mime", "image/png")
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime};base64,{img['base64']}"},
-                })
-            else:
-                log.warning("vision_query: skipping image with unknown format: %s", list(img.keys()))
-
-        messages = [{"role": "user", "content": content}]
-        response_msg, usage = self.chat(
-            messages=messages,
-            model=model,
-            tools=None,
-            reasoning_effort=reasoning_effort,
-            max_tokens=max_tokens,
-        )
-        text = response_msg.get("content") or ""
-        return text, usage
-
     def default_model(self) -> str:
-        """Return the single default model from env. LLM switches via tool if needed."""
-        env_model = os.environ.get("OUROBOROS_MODEL", "")
-        if env_model:
-            return env_model
-        # If Codex is available, default to Codex model
-        if self._get_codex_client():
-            return DEFAULT_CODEX_MODEL
-        return "anthropic/claude-sonnet-4.6"
+        """Default model to use when no preference is specified."""
+        # Prefer MiniMax if available
+        if self._get_minimax_client():
+            return "MiniMax-M2.5"
+        # Fall back to OpenRouter default
+        return "openai/gpt-4o"
 
     def available_models(self) -> List[str]:
-        """Return list of available models from env (for switch_model tool schema)."""
-        main = self.default_model()
-        code = os.environ.get("OUROBOROS_MODEL_CODE", "")
-        light = os.environ.get("OUROBOROS_MODEL_LIGHT", "")
-        models = [main]
-        # Add Codex models if authenticated
-        if self._get_codex_client():
-            for cm in ["codex-mini", "o4-mini", "gpt-4.1"]:
-                if cm not in models:
-                    models.append(cm)
-        # Add MiniMax models if configured
-        if self._get_minimax_client():
-            for mm in ["MiniMax-M2.5", "MiniMax-M2.5-highspeed"]:
-                if mm not in models:
-                    models.append(mm)
-        if code and code not in models:
-            models.append(code)
-        if light and light not in models:
-            models.append(light)
-        return models
+        """List of models this client can access."""
+        # Return all known model families we support
+        return [
+            # MiniMax (coding plan)
+            "MiniMax-M2",
+            "MiniMax-M2.1",
+            "MiniMax-M2.5",
+            # OpenRouter - Anthropic
+            "anthropic/claude-opus-4.6",
+            "anthropic/claude-sonnet-4.6",
+            "anthropic/claude-sonnet-4.5",
+            # OpenRouter - OpenAI
+            "openai/gpt-4o",
+            "openai/gpt-4o-mini",
+            "openai/o3",
+            "openai/o3-mini",
+            # OpenRouter - Google
+            "google/gemini-2.5-pro-preview",
+            "google/gemini-2.0-flash",
+            # OpenRouter - Meta
+            "meta-llama/llama-3.3-70b-instruct",
+            # CodeX (if authenticated)
+            "codex-mini",
+        ]
