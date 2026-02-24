@@ -80,9 +80,10 @@ def get_status():
         "branch": st.get("current_branch"),
         "sha": st.get("current_sha"),
         "budget": {
-            "total": total_budget,
+            "mode": "subscription" if total_budget <= 0 else "usage",
+            "total": total_budget if total_budget > 0 else None,
             "spent": round(spent, 4),
-            "remaining": round(max(0, total_budget - spent), 4),
+            "remaining": round(max(0, total_budget - spent), 4) if total_budget > 0 else None,
             "pct": round((spent / total_budget * 100) if total_budget > 0 else 0, 1),
         },
         "tokens": {

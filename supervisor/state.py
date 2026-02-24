@@ -146,6 +146,8 @@ def ensure_state_defaults(st: Dict[str, Any]) -> Dict[str, Any]:
     st.setdefault("budget_drift_pct", None)
     st.setdefault("budget_drift_alert", False)
     st.setdefault("evolution_consecutive_failures", 0)
+    st.setdefault("subscription_window_start", None)
+    st.setdefault("subscription_last_reset_usd", None)
     for legacy_key in ("approvals", "idle_cursor", "idle_stats", "last_idle_task_at",
                         "last_auto_review_at", "last_review_task_id", "session_daily_snapshot"):
         st.pop(legacy_key, None)
@@ -245,6 +247,15 @@ def init_state() -> Dict[str, Any]:
 TOTAL_BUDGET_LIMIT: float = 0.0
 EVOLUTION_BUDGET_RESERVE: float = 50.0  # Stop evolution when remaining < this
 
+# Subscription mode: when TOTAL_BUDGET <= 0, treat as unlimited subscription.
+# MiniMax coding plan resets usage every 5 hours — track windows for info only.
+SUBSCRIPTION_WINDOW_SEC: int = 5 * 3600  # 5 hours
+
+
+def is_subscription_mode() -> bool:
+    """True when running on a subscription plan (no per-token budget limit)."""
+    return TOTAL_BUDGET_LIMIT <= 0
+
 
 def set_budget_limit(limit: float) -> None:
     """Set total budget limit for budget_pct calculation."""
@@ -254,11 +265,36 @@ def set_budget_limit(limit: float) -> None:
 
 def budget_remaining(st: Dict[str, Any]) -> float:
     """Calculate remaining budget in USD."""
+    if is_subscription_mode():
+        return float('inf')
     spent = float(st.get("spent_usd") or 0.0)
-    total = float(TOTAL_BUDGET_LIMIT or 0.0)
-    if total <= 0:
-        return float('inf')  # No limit set
-    return max(0.0, total - spent)
+    return max(0.0, TOTAL_BUDGET_LIMIT - spent)
+
+
+def maybe_reset_subscription_window(st: Dict[str, Any]) -> bool:
+    """Reset usage counters if the subscription window (5h) has elapsed.
+
+    Returns True if a reset happened.
+    """
+    if not is_subscription_mode():
+        return False
+    last_reset = st.get("subscription_window_start")
+    now = time.time()
+    if last_reset is None:
+        st["subscription_window_start"] = now
+        return False
+    if now - float(last_reset) >= SUBSCRIPTION_WINDOW_SEC:
+        # Window elapsed — reset counters
+        prev_spent = float(st.get("spent_usd") or 0.0)
+        st["spent_usd"] = 0.0
+        st["spent_calls"] = 0
+        st["spent_tokens_prompt"] = 0
+        st["spent_tokens_completion"] = 0
+        st["spent_tokens_cached"] = 0
+        st["subscription_window_start"] = now
+        st["subscription_last_reset_usd"] = prev_spent
+        return True
+    return False
 
 
 def check_openrouter_ground_truth() -> Optional[Dict[str, float]]:
@@ -337,7 +373,9 @@ def update_budget_from_usage(usage: Dict[str, Any]) -> None:
             usage.get("completion_tokens") if isinstance(usage, dict) else 0)
         st["spent_tokens_cached"] = _to_int(st.get("spent_tokens_cached") or 0) + _to_int(
             usage.get("cached_tokens") if isinstance(usage, dict) else 0)
-        should_check_ground_truth = (st["spent_calls"] % 50 == 0)
+        # Subscription mode: reset counters every 5h window
+        maybe_reset_subscription_window(st)
+        should_check_ground_truth = (st["spent_calls"] % 50 == 0) and not is_subscription_mode()
         _save_state_unlocked(st)
     finally:
         release_file_lock(STATE_LOCK_PATH, lock_fd)
@@ -588,14 +626,18 @@ def status_text(workers_dict: Dict[int, Any], pending_list: list, running_dict: 
     if running_dict and busy_count == 0:
         lines.append("queue_warning: running>0 while busy=0")
     spent = float(st.get("spent_usd") or 0.0)
-    pct = budget_pct(st)
-    budget_remaining_usd = max(0, TOTAL_BUDGET_LIMIT - spent)
-    lines.append(f"budget_total: ${TOTAL_BUDGET_LIMIT:.0f}")
-    lines.append(f"budget_remaining: ${budget_remaining_usd:.0f}")
-    if pct > 0:
-        lines.append(f"spent_usd: ${spent:.2f} ({pct:.1f}% of budget)")
+    if is_subscription_mode():
+        lines.append("budget_mode: subscription (unlimited)")
+        lines.append(f"spent_usd_this_window: ${spent:.2f}")
     else:
-        lines.append(f"spent_usd: ${spent:.2f}")
+        pct = budget_pct(st)
+        budget_remaining_usd = max(0, TOTAL_BUDGET_LIMIT - spent)
+        lines.append(f"budget_total: ${TOTAL_BUDGET_LIMIT:.0f}")
+        lines.append(f"budget_remaining: ${budget_remaining_usd:.0f}")
+        if pct > 0:
+            lines.append(f"spent_usd: ${spent:.2f} ({pct:.1f}% of budget)")
+        else:
+            lines.append(f"spent_usd: ${spent:.2f}")
     lines.append(f"spent_calls: {st.get('spent_calls')}")
     lines.append(f"prompt_tokens: {st.get('spent_tokens_prompt')}, completion_tokens: {st.get('spent_tokens_completion')}, cached_tokens: {st.get('spent_tokens_cached')}")
 

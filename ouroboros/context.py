@@ -71,9 +71,13 @@ def _build_runtime_section(env: Any, task: Dict[str, Any]) -> str:
         state_json = _safe_read(env.drive_path("state/state.json"), fallback="{}")
         state_data = json.loads(state_json)
         spent_usd = float(state_data.get("spent_usd", 0))
-        total_usd = float(os.environ.get("TOTAL_BUDGET", "1"))
-        remaining_usd = total_usd - spent_usd
-        budget_info = {"total_usd": total_usd, "spent_usd": spent_usd, "remaining_usd": remaining_usd}
+        total_usd = float(os.environ.get("TOTAL_BUDGET", "0"))
+        if total_usd <= 0:
+            # Subscription mode — no hard limit, track usage for info only
+            budget_info = {"mode": "subscription", "spent_usd_this_window": spent_usd, "limit": "unlimited"}
+        else:
+            remaining_usd = total_usd - spent_usd
+            budget_info = {"total_usd": total_usd, "spent_usd": spent_usd, "remaining_usd": remaining_usd}
     except Exception:
         log.debug("Failed to calculate budget info for context", exc_info=True)
         pass

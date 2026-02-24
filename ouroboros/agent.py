@@ -368,15 +368,16 @@ class OuroborosAgent:
                 log.warning("Failed to log context soft cap trim event", exc_info=True)
                 pass
 
-        # Read budget remaining for cost guard
+        # Read budget remaining for cost guard (None = no limit / subscription mode)
         budget_remaining = None
         try:
-            state_path = self.env.drive_path("state") / "state.json"
-            state_data = json.loads(read_text(state_path))
-            total_budget = float(os.environ.get("TOTAL_BUDGET", "1"))
-            spent = float(state_data.get("spent_usd", 0))
+            total_budget = float(os.environ.get("TOTAL_BUDGET", "0"))
             if total_budget > 0:
+                state_path = self.env.drive_path("state") / "state.json"
+                state_data = json.loads(read_text(state_path))
+                spent = float(state_data.get("spent_usd", 0))
                 budget_remaining = max(0, total_budget - spent)
+            # else: subscription mode — budget_remaining stays None → no limit
         except Exception:
             pass
 

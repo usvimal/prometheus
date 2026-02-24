@@ -130,12 +130,20 @@ async function refresh() {
   if (status) {
     $('statusDot').className = 'status-dot';
     const b = status.budget;
-    $('budgetSpent').textContent = `$${b.spent.toFixed(2)}`;
-    $('budgetRemaining').textContent = `$${b.remaining.toFixed(2)}`;
-    $('budgetTotal').textContent = `$${b.total.toFixed(0)}`;
-    const pct = Math.min(100, b.pct);
-    $('budgetFill').style.width = pct + '%';
-    $('budgetFill').style.background = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--accent)' : 'var(--green)';
+    if (b.mode === 'subscription') {
+      $('budgetSpent').textContent = `$${b.spent.toFixed(2)} this window`;
+      $('budgetRemaining').textContent = 'Unlimited';
+      $('budgetTotal').textContent = 'Subscription';
+      $('budgetFill').style.width = '100%';
+      $('budgetFill').style.background = 'var(--blue)';
+    } else {
+      $('budgetSpent').textContent = `$${b.spent.toFixed(2)}`;
+      $('budgetRemaining').textContent = `$${b.remaining.toFixed(2)}`;
+      $('budgetTotal').textContent = `$${b.total.toFixed(0)}`;
+      const pct = Math.min(100, b.pct);
+      $('budgetFill').style.width = pct + '%';
+      $('budgetFill').style.background = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--accent)' : 'var(--green)';
+    }
 
     $('branch').textContent = status.branch || '-';
     $('sha').textContent = (status.sha || '-').substring(0, 8);

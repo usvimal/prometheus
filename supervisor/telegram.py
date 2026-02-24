@@ -377,9 +377,13 @@ def _send_markdown_telegram(chat_id: int, text: str) -> Tuple[bool, str]:
 def _format_budget_line(st: Dict[str, Any]) -> str:
     spent = float(st.get("spent_usd") or 0.0)
     total = float(TOTAL_BUDGET_LIMIT or 0.0)
-    pct = (spent / total * 100.0) if total > 0 else 0.0
     sha = (st.get("current_sha") or "")[:8]
     branch = st.get("current_branch") or "?"
+    if total <= 0:
+        # Subscription mode — show usage this window only
+        calls = int(st.get("spent_calls") or 0)
+        return f"—\nSubscription | ~${spent:.4f} ({calls} calls) | {branch}@{sha}"
+    pct = (spent / total * 100.0) if total > 0 else 0.0
     return f"—\nBudget: ${spent:.4f} / ${total:.2f} ({pct:.2f}%) | {branch}@{sha}"
 
 
