@@ -1,200 +1,132 @@
 """
-Browser automation tools via Playwright (sync API).
+Browser automation tools via browser-use (CDP + anti-detection).
 
 Provides browse_page (open URL, get content/screenshot)
 and browser_action (click, fill, evaluate JS on current page).
 
-Browser state lives in ToolContext (per-task lifecycle),
-not module-level globals — safe across threads.
+Uses browser-use's Browser/Page API which provides:
+- CDP-based automation (not Playwright)
+- Built-in anti-detection (stealth fingerprinting, extension support)
+- Default extensions (uBlock Origin, cookie handlers)
+
+Browser state lives in ToolContext (per-task lifecycle).
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import subprocess
 import sys
-import threading
 from typing import Any, Dict, List
-
-try:
-    from playwright_stealth import Stealth
-    _HAS_STEALTH = True
-except ImportError:
-    _HAS_STEALTH = False
 
 from prometheus.tools.registry import ToolContext, ToolEntry
 
 log = logging.getLogger(__name__)
 
-_playwright_ready = False
-# Module-level Playwright instance to avoid greenlet threading issues
-# Persists across ToolContext recreations but can be reset on error
-_pw_instance = None
-_pw_thread_id = None  # Track which thread owns the Playwright instance
+# Module-level browser-use Browser instance (reused across tasks)
+_browser_instance = None
+_event_loop = None
 
 
-def _ensure_playwright_installed():
-    """Install Playwright and Chromium if not already available."""
-    global _playwright_ready
-    if _playwright_ready:
-        return
+def _get_loop() -> asyncio.AbstractEventLoop:
+    """Get or create a persistent event loop for async browser-use calls."""
+    global _event_loop
+    if _event_loop is None or _event_loop.is_closed():
+        _event_loop = asyncio.new_event_loop()
+    return _event_loop
 
+
+def _run_async(coro):
+    """Run an async coroutine synchronously using our persistent loop."""
+    loop = _get_loop()
+    return loop.run_until_complete(coro)
+
+
+def _ensure_browser_installed():
+    """Install browser-use chromium if not available."""
     try:
-        import playwright  # noqa: F401
-    except ImportError:
-        log.info("Playwright not found, installing...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
-
-    try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as pw:
-            pw.chromium.executable_path
-        log.info("Playwright chromium binary found")
+        _run_async(_check_browser())
     except Exception:
-        log.info("Installing Playwright chromium binary...")
-        subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
-        subprocess.check_call([sys.executable, "-m", "playwright", "install-deps", "chromium"])
-
-    _playwright_ready = True
-
-
-def _reset_playwright_greenlet():
-    """
-    Fully reset Playwright's greenlet state by purging all related modules.
-    This is necessary because sync_playwright() uses greenlets internally,
-    and once a greenlet dies, it cannot be reused across "threads".
-    """
-    global _pw_instance, _pw_thread_id
-
-    log.info("Resetting Playwright greenlet state...")
-
-    # Kill any lingering chromium processes
-    try:
-        subprocess.run(["pkill", "-9", "-f", "chromium"], capture_output=True, timeout=5)
-    except Exception:
-        log.debug("Failed to kill chromium processes during reset", exc_info=True)
-        pass
-
-    # Purge all playwright modules from sys.modules to reset greenlet state
-    mods_to_remove = [k for k in sys.modules.keys() if k.startswith('playwright')]
-    for k in mods_to_remove:
-        del sys.modules[k]
-
-    # Also purge greenlet-related modules to ensure clean state
-    mods_to_remove = [k for k in sys.modules.keys() if 'greenlet' in k.lower()]
-    for k in mods_to_remove:
-        try:
-            del sys.modules[k]
-        except Exception:
-            log.debug(f"Failed to delete greenlet module {k} during reset", exc_info=True)
-            pass
-
-    # Reset module-level instance and thread ID
-    _pw_instance = None
-    _pw_thread_id = None
-    log.info("Playwright greenlet state reset complete")
+        log.info("Installing browser-use browser...")
+        subprocess.check_call(
+            [sys.executable, "-m", "browser_use", "install"],
+            timeout=120,
+        )
 
 
-def _ensure_browser(ctx: ToolContext):
-    """Create or reuse browser for this task. Browser state lives in ctx,
-    but Playwright instance is module-level to avoid greenlet issues."""
-    global _pw_instance, _pw_thread_id
+async def _check_browser():
+    """Quick check that browser-use can launch."""
+    from browser_use import Browser
+    b = Browser(headless=True)
+    await b.start()
+    await b.stop()
 
-    # Check if we've switched threads - if so, reset everything
-    current_thread_id = threading.get_ident()
-    if _pw_instance is not None and _pw_thread_id != current_thread_id:
-        log.info(f"Thread switch detected (old={_pw_thread_id}, new={current_thread_id}). Resetting Playwright...")
-        _reset_playwright_greenlet()
 
-    if ctx.browser_state.browser is not None:
-        try:
-            if ctx.browser_state.browser.is_connected():
-                return ctx.browser_state.page
-        except Exception:
-            log.debug("Browser connection check failed in _ensure_browser", exc_info=True)
-            pass
-        # Browser died — clean up and recreate
-        cleanup_browser(ctx)
+async def _start_browser():
+    """Start a browser-use Browser instance with anti-detection defaults."""
+    from browser_use import Browser
 
-    _ensure_playwright_installed()
-
-    # Use module-level Playwright instance to avoid greenlet threading issues
-    if _pw_instance is None:
-        from playwright.sync_api import sync_playwright
-
-        try:
-            _pw_instance = sync_playwright().start()
-            _pw_thread_id = current_thread_id  # Record which thread owns this instance
-            log.info(f"Created Playwright instance in thread {_pw_thread_id}")
-        except RuntimeError as e:
-            if "cannot switch" in str(e) or "different thread" in str(e):
-                # Greenlet is dead, do a full reset
-                _reset_playwright_greenlet()
-                # Now import fresh and try again
-                from playwright.sync_api import sync_playwright
-                _pw_instance = sync_playwright().start()
-                _pw_thread_id = current_thread_id
-                log.info(f"Recreated Playwright instance in thread {_pw_thread_id} after error")
-            else:
-                raise
-
-    # Store reference in ctx for cleanup
-    ctx.browser_state.pw_instance = _pw_instance
-
-    ctx.browser_state.browser = _pw_instance.chromium.launch(
+    browser = Browser(
         headless=True,
+        window_size={"width": 1920, "height": 1080},
+        enable_default_extensions=True,  # uBlock Origin, cookie handlers, ClearURLs
         args=[
             "--no-sandbox",
             "--disable-dev-shm-usage",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-features=site-per-process",
-            "--window-size=1920,1080",
         ],
     )
-    ctx.browser_state.page = ctx.browser_state.browser.new_page(
-        viewport={"width": 1920, "height": 1080},
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        ),
-    )
+    await browser.start()
+    return browser
 
-    if _HAS_STEALTH:
-        stealth = Stealth()
-        stealth.apply_stealth_sync(ctx.browser_state.page)
 
-    ctx.browser_state.page.set_default_timeout(30000)
-    return ctx.browser_state.page
+async def _ensure_browser_async(ctx: ToolContext):
+    """Create or reuse browser + page for this task."""
+    global _browser_instance
+
+    # Check if existing browser is still alive
+    if ctx.browser_state.browser is not None:
+        try:
+            pages = await ctx.browser_state.browser.get_pages()
+            if pages:
+                return ctx.browser_state.page
+        except Exception:
+            log.debug("Browser connection check failed", exc_info=True)
+            await _cleanup_browser_async(ctx)
+
+    # Start or reuse module-level browser
+    if _browser_instance is None:
+        _browser_instance = await _start_browser()
+        log.info("browser-use Browser started with anti-detection defaults")
+
+    ctx.browser_state.browser = _browser_instance
+
+    # Create a new page
+    page = await _browser_instance.new_page("about:blank")
+    ctx.browser_state.page = page
+    return page
+
+
+async def _cleanup_browser_async(ctx: ToolContext):
+    """Close page for this context. Keep browser alive for reuse."""
+    try:
+        if ctx.browser_state.page is not None:
+            await ctx.browser_state.browser.close_page(ctx.browser_state.page)
+    except Exception:
+        log.debug("Failed to close page during cleanup", exc_info=True)
+    ctx.browser_state.page = None
+    ctx.browser_state.browser = None
 
 
 def cleanup_browser(ctx: ToolContext) -> None:
-    """Close browser and playwright. Called by agent.py in finally block.
-
-    Note: We DON'T stop the module-level _pw_instance here to allow reuse
-    across tasks. Only close the browser and page for this context.
-    """
-    global _pw_instance
-
+    """Close browser page. Called by agent.py in finally block."""
     try:
-        if ctx.browser_state.page is not None:
-            ctx.browser_state.page.close()
+        _run_async(_cleanup_browser_async(ctx))
     except Exception:
-        log.debug("Failed to close browser page during cleanup", exc_info=True)
-        pass
-    try:
-        if ctx.browser_state.browser is not None:
-            ctx.browser_state.browser.close()
-    except Exception as e:
-        # If browser cleanup fails with thread error, reset everything
-        if "cannot switch" in str(e) or "different thread" in str(e):
-            log.warning("Browser cleanup hit thread error, resetting Playwright...")
-            _reset_playwright_greenlet()
-
-    # Clear ctx references but keep module-level _pw_instance alive for reuse
+        log.debug("Failed to cleanup browser", exc_info=True)
     ctx.browser_state.page = None
     ctx.browser_state.browser = None
-    ctx.browser_state.pw_instance = None
 
 
 _MARKDOWN_JS = """() => {
@@ -222,10 +154,10 @@ _MARKDOWN_JS = """() => {
 }"""
 
 
-def _extract_page_output(page: Any, output: str, ctx: ToolContext) -> str:
+async def _extract_page_output(page: Any, output: str, ctx: ToolContext) -> str:
     """Extract page content in the requested format."""
     if output == "screenshot":
-        data = page.screenshot(type="png", full_page=False)
+        data = await page.screenshot()
         b64 = base64.b64encode(data).decode()
         ctx.browser_state.last_screenshot_b64 = b64
         return (
@@ -233,98 +165,129 @@ def _extract_page_output(page: Any, output: str, ctx: ToolContext) -> str:
             f"Call send_photo(image_base64='__last_screenshot__') to deliver it to the owner."
         )
     elif output == "html":
-        html = page.content()
+        html = await page.evaluate("() => document.documentElement.outerHTML")
         return html[:50000] + ("... [truncated]" if len(html) > 50000 else "")
     elif output == "markdown":
-        text = page.evaluate(_MARKDOWN_JS)
+        text = await page.evaluate(_MARKDOWN_JS)
         return text[:30000] + ("... [truncated]" if len(text) > 30000 else "")
     else:  # text
-        text = page.inner_text("body")
+        text = await page.evaluate("() => document.body.innerText")
         return text[:30000] + ("... [truncated]" if len(text) > 30000 else "")
+
+
+async def _browse_page_async(ctx: ToolContext, url: str, output: str = "text",
+                              wait_for: str = "", timeout: int = 30000) -> str:
+    page = await _ensure_browser_async(ctx)
+    await page.goto(url)
+    # Give page time to load
+    await asyncio.sleep(1)
+    if wait_for:
+        # Use JS to wait for selector
+        await page.evaluate(
+            f"""() => new Promise((resolve, reject) => {{
+                const timeout = setTimeout(() => reject(new Error('Timeout waiting for {wait_for}')), {timeout});
+                const check = () => {{
+                    if (document.querySelector('{wait_for}')) {{
+                        clearTimeout(timeout);
+                        resolve(true);
+                    }} else {{
+                        requestAnimationFrame(check);
+                    }}
+                }};
+                check();
+            }})"""
+        )
+    return await _extract_page_output(page, output, ctx)
+
+
+async def _browser_action_async(ctx: ToolContext, action: str, selector: str = "",
+                                 value: str = "", timeout: int = 5000) -> str:
+    page = await _ensure_browser_async(ctx)
+
+    if action == "click":
+        if not selector:
+            return "Error: selector required for click"
+        elements = await page.get_elements_by_css_selector(selector)
+        if not elements:
+            return f"Error: no elements found matching '{selector}'"
+        await elements[0].click()
+        await asyncio.sleep(0.5)
+        return f"Clicked: {selector}"
+    elif action == "fill":
+        if not selector:
+            return "Error: selector required for fill"
+        elements = await page.get_elements_by_css_selector(selector)
+        if not elements:
+            return f"Error: no elements found matching '{selector}'"
+        await elements[0].fill(value)
+        return f"Filled {selector} with: {value}"
+    elif action == "select":
+        if not selector:
+            return "Error: selector required for select"
+        # Use JS for select since browser-use doesn't have native select_option
+        await page.evaluate(
+            f"""() => {{
+                const el = document.querySelector('{selector}');
+                if (el) {{ el.value = '{value}'; el.dispatchEvent(new Event('change')); }}
+            }}"""
+        )
+        return f"Selected {value} in {selector}"
+    elif action == "screenshot":
+        data = await page.screenshot()
+        b64 = base64.b64encode(data).decode()
+        ctx.browser_state.last_screenshot_b64 = b64
+        return (
+            f"Screenshot captured ({len(b64)} bytes base64). "
+            f"Call send_photo(image_base64='__last_screenshot__') to deliver it to the owner."
+        )
+    elif action == "evaluate":
+        if not value:
+            return "Error: value (JS code) required for evaluate"
+        # Wrap in arrow function if not already
+        js = value if value.strip().startswith("(") or value.strip().startswith("function") else f"() => {{ {value} }}"
+        result = await page.evaluate(js)
+        out = str(result)
+        return out[:20000] + ("... [truncated]" if len(out) > 20000 else "")
+    elif action == "scroll":
+        direction = value or "down"
+        if direction == "down":
+            await page.evaluate("() => window.scrollBy(0, 600)")
+        elif direction == "up":
+            await page.evaluate("() => window.scrollBy(0, -600)")
+        elif direction == "top":
+            await page.evaluate("() => window.scrollTo(0, 0)")
+        elif direction == "bottom":
+            await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        return f"Scrolled {direction}"
+    else:
+        return f"Unknown action: {action}. Use: click, fill, select, screenshot, evaluate, scroll"
 
 
 def _browse_page(ctx: ToolContext, url: str, output: str = "text",
                  wait_for: str = "", timeout: int = 30000) -> str:
     try:
-        page = _ensure_browser(ctx)
-        page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-        if wait_for:
-            page.wait_for_selector(wait_for, timeout=timeout)
-        return _extract_page_output(page, output, ctx)
+        return _run_async(_browse_page_async(ctx, url, output, wait_for, timeout))
     except Exception as e:
-        if "cannot switch" in str(e) or "different thread" in str(e) or "greenlet" in str(e).lower():
-            log.warning(f"Browser thread error detected: {e}. Resetting Playwright and retrying...")
+        log.warning(f"browse_page error: {e}", exc_info=True)
+        # Reset browser state and retry once
+        try:
             cleanup_browser(ctx)
-            _reset_playwright_greenlet()
-            page = _ensure_browser(ctx)
-            page.goto(url, timeout=timeout, wait_until="domcontentloaded")
-            if wait_for:
-                page.wait_for_selector(wait_for, timeout=timeout)
-            return _extract_page_output(page, output, ctx)
-        raise
+            return _run_async(_browse_page_async(ctx, url, output, wait_for, timeout))
+        except Exception as e2:
+            return f"Error: {e2}"
 
 
 def _browser_action(ctx: ToolContext, action: str, selector: str = "",
                     value: str = "", timeout: int = 5000) -> str:
-    def _do_action():
-        page = _ensure_browser(ctx)
-
-        if action == "click":
-            if not selector:
-                return "Error: selector required for click"
-            page.click(selector, timeout=timeout)
-            page.wait_for_timeout(500)
-            return f"Clicked: {selector}"
-        elif action == "fill":
-            if not selector:
-                return "Error: selector required for fill"
-            page.fill(selector, value, timeout=timeout)
-            return f"Filled {selector} with: {value}"
-        elif action == "select":
-            if not selector:
-                return "Error: selector required for select"
-            page.select_option(selector, value, timeout=timeout)
-            return f"Selected {value} in {selector}"
-        elif action == "screenshot":
-            data = page.screenshot(type="png", full_page=False)
-            b64 = base64.b64encode(data).decode()
-            ctx.browser_state.last_screenshot_b64 = b64
-            return (
-                f"Screenshot captured ({len(b64)} bytes base64). "
-                f"Call send_photo(image_base64='__last_screenshot__') to deliver it to the owner."
-            )
-        elif action == "evaluate":
-            if not value:
-                return "Error: value (JS code) required for evaluate"
-            result = page.evaluate(value)
-            out = str(result)
-            return out[:20000] + ("... [truncated]" if len(out) > 20000 else "")
-        elif action == "scroll":
-            direction = value or "down"
-            if direction == "down":
-                page.evaluate("window.scrollBy(0, 600)")
-            elif direction == "up":
-                page.evaluate("window.scrollBy(0, -600)")
-            elif direction == "top":
-                page.evaluate("window.scrollTo(0, 0)")
-            elif direction == "bottom":
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            return f"Scrolled {direction}"
-        else:
-            return f"Unknown action: {action}. Use: click, fill, select, screenshot, evaluate, scroll"
-
     try:
-        return _do_action()
-    except (RuntimeError, Exception) as e:
-        # Catch greenlet threading errors and reset Playwright completely
-        if "cannot switch" in str(e) or "different thread" in str(e) or "greenlet" in str(e).lower():
-            log.warning(f"Browser thread error detected: {e}. Resetting Playwright and retrying...")
+        return _run_async(_browser_action_async(ctx, action, selector, value, timeout))
+    except Exception as e:
+        log.warning(f"browser_action error: {e}", exc_info=True)
+        try:
             cleanup_browser(ctx)
-            _reset_playwright_greenlet()
-            # Retry once with fresh state
-            return _do_action()
-        else:
-            raise
+            return _run_async(_browser_action_async(ctx, action, selector, value, timeout))
+        except Exception as e2:
+            return f"Error: {e2}"
 
 
 def get_tools() -> List[ToolEntry]:
@@ -334,8 +297,8 @@ def get_tools() -> List[ToolEntry]:
             schema={
                 "name": "browse_page",
                 "description": (
-                    "Open a URL in headless browser. Returns page content as text, "
-                    "html, markdown, or screenshot (base64 PNG). "
+                    "Open a URL in stealth headless browser (browser-use with anti-detection). "
+                    "Returns page content as text, html, markdown, or screenshot (base64 PNG). "
                     "Browser persists across calls within a task. "
                     "For screenshots: use send_photo tool to deliver the image to owner."
                 ),
@@ -368,7 +331,7 @@ def get_tools() -> List[ToolEntry]:
             schema={
                 "name": "browser_action",
                 "description": (
-                    "Perform action on current browser page. Actions: "
+                    "Perform action on current stealth browser page. Actions: "
                     "click (selector), fill (selector + value), select (selector + value), "
                     "screenshot (base64 PNG), evaluate (JS code in value), "
                     "scroll (value: up/down/top/bottom)."
