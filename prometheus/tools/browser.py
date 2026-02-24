@@ -1,15 +1,14 @@
 """
-Browser automation tools via browser-use (CDP + anti-detection).
+Browser tools: tiered fetching with Scrapling (fast HTTP) + browser-use (full browser).
 
-Provides browse_page (open URL, get content/screenshot)
-and browser_action (click, fill, evaluate JS on current page).
+browse_page tries Scrapling first (HTTP with TLS fingerprinting, ~5MB RAM, <1s)
+and falls back to browser-use (full Chromium, ~200MB RAM, 3-10s) only when needed.
 
-Uses browser-use's Browser/Page API which provides:
-- CDP-based automation (not Playwright)
-- Built-in anti-detection (stealth fingerprinting, extension support)
-- Default extensions (uBlock Origin, cookie handlers)
+browser_action always uses browser-use (needs a real browser for click/fill/JS).
 
-Browser state lives in ToolContext (per-task lifecycle).
+Tier 1 — Scrapling Fetcher: HTTP + TLS spoofing. Handles 90% of page reads.
+Tier 2 — browser-use CDP: Full Chromium with anti-detection extensions. For JS-heavy
+         sites, screenshots, wait_for selectors, and interactive actions.
 """
 
 from __future__ import annotations
@@ -17,9 +16,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import subprocess
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from prometheus.tools.registry import ToolContext, ToolEntry
 
@@ -29,6 +29,13 @@ log = logging.getLogger(__name__)
 _browser_instance = None
 _event_loop = None
 
+# Minimum text length to consider Scrapling result "good enough"
+_MIN_SCRAPLING_TEXT = 100
+
+
+# ---------------------------------------------------------------------------
+# Async helpers
+# ---------------------------------------------------------------------------
 
 def _get_loop() -> asyncio.AbstractEventLoop:
     """Get or create a persistent event loop for async browser-use calls."""
@@ -43,6 +50,93 @@ def _run_async(coro):
     loop = _get_loop()
     return loop.run_until_complete(coro)
 
+
+# ---------------------------------------------------------------------------
+# Tier 1: Scrapling (fast HTTP with TLS fingerprinting)
+# ---------------------------------------------------------------------------
+
+def _scrapling_fetch(url: str, output: str = "text",
+                     timeout: int = 15) -> Optional[str]:
+    """Fetch a page via Scrapling HTTP (no browser). Returns None on failure."""
+    try:
+        from scrapling import Fetcher
+        fetcher = Fetcher(timeout=timeout)
+        page = fetcher.get(url)
+
+        if page.status != 200:
+            log.debug("Scrapling got status %d for %s, deferring to browser", page.status, url)
+            return None
+
+        if output == "html":
+            html = page.html_content or ""
+            if not html and page.body:
+                html = page.body.decode("utf-8", errors="replace")
+            if len(html) < _MIN_SCRAPLING_TEXT:
+                return None
+            return html[:50000] + ("... [truncated]" if len(html) > 50000 else "")
+
+        elif output == "markdown":
+            text = _html_to_markdown(page)
+            if len(text) < _MIN_SCRAPLING_TEXT:
+                return None
+            return text[:30000] + ("... [truncated]" if len(text) > 30000 else "")
+
+        else:  # text
+            text = page.get_all_text() or ""
+            if len(text.strip()) < _MIN_SCRAPLING_TEXT:
+                return None
+            return text[:30000] + ("... [truncated]" if len(text) > 30000 else "")
+
+    except ImportError:
+        log.debug("Scrapling not installed, skipping fast path")
+        return None
+    except Exception as e:
+        log.debug("Scrapling fetch failed for %s: %s", url, e)
+        return None
+
+
+def _html_to_markdown(page) -> str:
+    """Convert Scrapling page to crude markdown using its DOM API."""
+    parts = []
+    try:
+        # Extract headings
+        for level in range(1, 7):
+            for h in page.find_all(f"h{level}"):
+                text = h.get_all_text().strip()
+                if text:
+                    parts.append(f"{'#' * level} {text}")
+
+        # Extract paragraphs and list items
+        for p in page.find_all("p"):
+            text = p.get_all_text().strip()
+            if text:
+                parts.append(text)
+
+        for li in page.find_all("li"):
+            text = li.get_all_text().strip()
+            if text:
+                parts.append(f"- {text}")
+
+        # Extract links
+        for a in page.find_all("a"):
+            href = a.attrib.get("href", "")
+            text = a.get_all_text().strip()
+            if text and href and href.startswith("http"):
+                parts.append(f"[{text}]({href})")
+
+    except Exception:
+        pass
+
+    if not parts:
+        # Fallback: just get all text
+        return page.get_all_text() or ""
+
+    return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: browser-use (full Chromium with CDP + anti-detection)
+# ---------------------------------------------------------------------------
 
 def _ensure_browser_installed():
     """Install browser-use chromium if not available."""
@@ -158,7 +252,11 @@ async def _extract_page_output(page: Any, output: str, ctx: ToolContext) -> str:
     """Extract page content in the requested format."""
     if output == "screenshot":
         data = await page.screenshot()
-        b64 = base64.b64encode(data).decode()
+        # browser-use may return base64 string or raw bytes depending on version
+        if isinstance(data, str):
+            b64 = data
+        else:
+            b64 = base64.b64encode(data).decode()
         ctx.browser_state.last_screenshot_b64 = b64
         return (
             f"Screenshot captured ({len(b64)} bytes base64). "
@@ -234,7 +332,10 @@ async def _browser_action_async(ctx: ToolContext, action: str, selector: str = "
         return f"Selected {value} in {selector}"
     elif action == "screenshot":
         data = await page.screenshot()
-        b64 = base64.b64encode(data).decode()
+        if isinstance(data, str):
+            b64 = data
+        else:
+            b64 = base64.b64encode(data).decode()
         ctx.browser_state.last_screenshot_b64 = b64
         return (
             f"Screenshot captured ({len(b64)} bytes base64). "
@@ -263,16 +364,53 @@ async def _browser_action_async(ctx: ToolContext, action: str, selector: str = "
         return f"Unknown action: {action}. Use: click, fill, select, screenshot, evaluate, scroll"
 
 
+# ---------------------------------------------------------------------------
+# browse_page: tiered fetching
+# ---------------------------------------------------------------------------
+
+def _needs_browser(output: str, wait_for: str) -> bool:
+    """Return True if this request must use the full browser."""
+    if output == "screenshot":
+        return True
+    if wait_for:
+        return True
+    return False
+
+
 def _browse_page(ctx: ToolContext, url: str, output: str = "text",
                  wait_for: str = "", timeout: int = 30000) -> str:
+    """Tiered page fetching: Scrapling HTTP first, browser-use fallback."""
+
+    # Tier 2 direct: screenshot or wait_for require real browser
+    if _needs_browser(output, wait_for):
+        return _browse_page_browser(ctx, url, output, wait_for, timeout)
+
+    # Tier 1: try Scrapling fast HTTP fetch
+    scrapling_timeout = min(timeout // 1000, 15)  # convert ms to seconds, cap at 15
+    result = _scrapling_fetch(url, output, scrapling_timeout)
+
+    if result is not None:
+        log.info("browse_page served via Scrapling (fast HTTP) for %s", url)
+        return f"[fetched via HTTP]\n{result}"
+
+    # Tier 2 fallback: Scrapling returned too little content (JS-rendered page?)
+    log.info("Scrapling returned insufficient content for %s, falling back to browser-use", url)
+    return _browse_page_browser(ctx, url, output, wait_for, timeout)
+
+
+def _browse_page_browser(ctx: ToolContext, url: str, output: str = "text",
+                         wait_for: str = "", timeout: int = 30000) -> str:
+    """Full browser-use fetch (Tier 2)."""
     try:
-        return _run_async(_browse_page_async(ctx, url, output, wait_for, timeout))
+        result = _run_async(_browse_page_async(ctx, url, output, wait_for, timeout))
+        return f"[fetched via browser]\n{result}"
     except Exception as e:
-        log.warning(f"browse_page error: {e}", exc_info=True)
+        log.warning("browse_page browser error: %s", e, exc_info=True)
         # Reset browser state and retry once
         try:
             cleanup_browser(ctx)
-            return _run_async(_browse_page_async(ctx, url, output, wait_for, timeout))
+            result = _run_async(_browse_page_async(ctx, url, output, wait_for, timeout))
+            return f"[fetched via browser]\n{result}"
         except Exception as e2:
             return f"Error: {e2}"
 
@@ -282,13 +420,17 @@ def _browser_action(ctx: ToolContext, action: str, selector: str = "",
     try:
         return _run_async(_browser_action_async(ctx, action, selector, value, timeout))
     except Exception as e:
-        log.warning(f"browser_action error: {e}", exc_info=True)
+        log.warning("browser_action error: %s", e, exc_info=True)
         try:
             cleanup_browser(ctx)
             return _run_async(_browser_action_async(ctx, action, selector, value, timeout))
         except Exception as e2:
             return f"Error: {e2}"
 
+
+# ---------------------------------------------------------------------------
+# Tool registration
+# ---------------------------------------------------------------------------
 
 def get_tools() -> List[ToolEntry]:
     return [
@@ -297,9 +439,9 @@ def get_tools() -> List[ToolEntry]:
             schema={
                 "name": "browse_page",
                 "description": (
-                    "Open a URL in stealth headless browser (browser-use with anti-detection). "
-                    "Returns page content as text, html, markdown, or screenshot (base64 PNG). "
-                    "Browser persists across calls within a task. "
+                    "Open a URL and get its content. Uses fast HTTP fetch with TLS spoofing "
+                    "for most pages (~1s), auto-falls back to full stealth browser for JS-heavy "
+                    "sites or screenshots. Returns text, html, markdown, or screenshot. "
                     "For screenshots: use send_photo tool to deliver the image to owner."
                 ),
                 "parameters": {
@@ -313,7 +455,7 @@ def get_tools() -> List[ToolEntry]:
                         },
                         "wait_for": {
                             "type": "string",
-                            "description": "CSS selector to wait for before extraction",
+                            "description": "CSS selector to wait for before extraction (forces full browser)",
                         },
                         "timeout": {
                             "type": "integer",
