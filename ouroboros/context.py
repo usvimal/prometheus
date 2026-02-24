@@ -196,17 +196,21 @@ def _build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 2. Budget drift
+    # 2. Budget drift (only relevant for pay-per-token mode)
     try:
-        state_json = read_text(env.drive_path("state/state.json"))
-        state_data = json.loads(state_json)
-        if state_data.get("budget_drift_alert"):
-            drift_pct = state_data.get("budget_drift_pct", 0)
-            our = state_data.get("spent_usd", 0)
-            theirs = state_data.get("openrouter_total_usd", 0)
-            checks.append(f"WARNING: BUDGET DRIFT {drift_pct:.1f}% — tracked=${our:.2f} vs OpenRouter=${theirs:.2f}")
+        total_budget = float(os.environ.get("TOTAL_BUDGET", "0"))
+        if total_budget > 0:
+            state_json = read_text(env.drive_path("state/state.json"))
+            state_data = json.loads(state_json)
+            if state_data.get("budget_drift_alert"):
+                drift_pct = state_data.get("budget_drift_pct", 0)
+                our = state_data.get("spent_usd", 0)
+                theirs = state_data.get("openrouter_total_usd", 0)
+                checks.append(f"WARNING: BUDGET DRIFT {drift_pct:.1f}% — tracked=${our:.2f} vs OpenRouter=${theirs:.2f}")
+            else:
+                checks.append("OK: budget drift within tolerance")
         else:
-            checks.append("OK: budget drift within tolerance")
+            checks.append("OK: subscription mode (no budget limit)")
     except Exception:
         pass
 

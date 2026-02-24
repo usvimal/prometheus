@@ -341,18 +341,31 @@ class BackgroundConsciousness:
         runtime_lines.append(f"BG budget spent: ${self._bg_spent_usd:.4f}")
         runtime_lines.append(f"Current wakeup interval: {self._next_wakeup_sec}s")
 
-        # Read state.json for budget remaining
+        # Budget info
         try:
-            state_path = self._drive_root / "state" / "state.json"
-            if state_path.exists():
-                state_data = json.loads(read_text(state_path))
-                total_budget = float(os.environ.get("TOTAL_BUDGET", "1"))
-                spent = float(state_data.get("spent_usd", 0))
-                if total_budget > 0:
+            total_budget = float(os.environ.get("TOTAL_BUDGET", "0"))
+            if total_budget <= 0:
+                # Subscription mode — show real quota from MiniMax API
+                runtime_lines.append("Budget mode: subscription (unlimited)")
+                try:
+                    from ouroboros.llm import fetch_minimax_quota
+                    quota = fetch_minimax_quota()
+                    if quota:
+                        for model_name, mq in quota.items():
+                            runtime_lines.append(
+                                f"Quota {model_name}: {mq['remaining']}/{mq['total']} calls "
+                                f"(resets in {mq['window_remaining_sec'] // 60}m)")
+                except Exception:
+                    pass
+            else:
+                state_path = self._drive_root / "state" / "state.json"
+                if state_path.exists():
+                    state_data = json.loads(read_text(state_path))
+                    spent = float(state_data.get("spent_usd", 0))
                     remaining = max(0, total_budget - spent)
                     runtime_lines.append(f"Budget remaining: ${remaining:.2f} / ${total_budget:.2f}")
         except Exception as e:
-            log.debug("Failed to read state for budget info: %s", e)
+            log.debug("Failed to read budget info: %s", e)
 
         # Show current model
         runtime_lines.append(f"Current model: {self._model}")
