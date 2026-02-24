@@ -213,12 +213,9 @@ Full text: [BIBLE.md](BIBLE.md)
 
 ---
 
-## Branches
+## Branch
 
-| Branch | Purpose |
-|--------|---------|
-| `main` | Working branch. All agent commits go here. |
-| `main-stable` | Crash fallback via `promote_to_stable`. |
+Single branch: `main`. All agent commits go here.
 
 ---
 

@@ -38,7 +38,7 @@ HEARTBEAT_STALE_SEC: int = 120
 QUEUE_MAX_RETRIES: int = 1
 TOTAL_BUDGET_LIMIT: float = 0.0
 BRANCH_DEV: str = "main"
-BRANCH_STABLE: str = "main-stable"
+BRANCH_STABLE: str = "main"
 
 _CTX = None
 _LAST_SPAWN_TIME: float = 0.0  # grace period: don't count dead workers right after spawn
@@ -63,7 +63,7 @@ def _get_ctx():
 
 def init(repo_dir: pathlib.Path, drive_root: pathlib.Path, max_workers: int,
          soft_timeout: int, hard_timeout: int, total_budget_limit: float,
-         branch_dev: str = "main", branch_stable: str = "main-stable") -> None:
+         branch_dev: str = "main", branch_stable: str = "main") -> None:
     global REPO_DIR, DRIVE_ROOT, MAX_WORKERS, SOFT_TIMEOUT_SEC, HARD_TIMEOUT_SEC
     global TOTAL_BUDGET_LIMIT, BRANCH_DEV, BRANCH_STABLE
     REPO_DIR = repo_dir

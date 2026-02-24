@@ -31,11 +31,11 @@ REPO_DIR: pathlib.Path = pathlib.Path.home() / "prometheus" / "repo"
 DRIVE_ROOT: pathlib.Path = pathlib.Path.home() / "prometheus" / "data"
 REMOTE_URL: str = ""
 BRANCH_DEV: str = "main"
-BRANCH_STABLE: str = "main-stable"
+BRANCH_STABLE: str = "main"
 
 
 def init(repo_dir: pathlib.Path, drive_root: pathlib.Path, remote_url: str,
-         branch_dev: str = "main", branch_stable: str = "main-stable") -> None:
+         branch_dev: str = "main", branch_stable: str = "main") -> None:
     global REPO_DIR, DRIVE_ROOT, REMOTE_URL, BRANCH_DEV, BRANCH_STABLE
     REPO_DIR = repo_dir
     DRIVE_ROOT = drive_root

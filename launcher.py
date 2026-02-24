@@ -156,7 +156,7 @@ if not CHAT_LOG_PATH.exists():
 # 3) Git constants
 # ----------------------------
 BRANCH_DEV = get_cfg("PROMETHEUS_BRANCH_DEV", default="main")
-BRANCH_STABLE = get_cfg("PROMETHEUS_BRANCH_STABLE", default="main-stable")
+BRANCH_STABLE = get_cfg("PROMETHEUS_BRANCH_STABLE", default="main")
 REMOTE_URL = f"https://{GITHUB_TOKEN}:x-oauth-basic@github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
 
 # ----------------------------
