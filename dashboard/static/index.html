@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prometheus Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --text-dim: #8b949e; --accent: #f0883e;
+    --green: #3fb950; --red: #f85149; --blue: #58a6ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; background: var(--bg); color: var(--text); }
+  .header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 20px; color: var(--accent); font-weight: 600; }
+  .header .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .header .status-dot.offline { background: var(--red); }
+  .header .refresh-info { margin-left: auto; color: var(--text-dim); font-size: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 24px; }
+  @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h2 { font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+  .card.full { grid-column: 1 / -1; }
+  .metric { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .metric:last-child { border-bottom: none; }
+  .metric .label { color: var(--text-dim); }
+  .metric .value { font-weight: 600; font-family: monospace; }
+  .metric .value.green { color: var(--green); }
+  .metric .value.red { color: var(--red); }
+  .metric .value.accent { color: var(--accent); }
+  .metric .value.blue { color: var(--blue); }
+  .budget-bar { height: 6px; background: var(--border); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .budget-bar .fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+  .log-list { max-height: 300px; overflow-y: auto; font-size: 13px; font-family: monospace; }
+  .log-entry { padding: 4px 0; border-bottom: 1px solid var(--border); word-break: break-all; }
+  .log-entry .ts { color: var(--text-dim); margin-right: 8px; }
+  .log-entry .type { color: var(--blue); margin-right: 8px; }
+  .queue-item { padding: 8px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+  .queue-item .id { color: var(--accent); font-family: monospace; font-size: 12px; }
+  .queue-item .type { background: var(--border); padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge.ok { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge.warn { background: rgba(240,136,62,0.15); color: var(--accent); }
+  .badge.err { background: rgba(248,81,73,0.15); color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="status-dot" id="statusDot"></div>
+  <h1>Prometheus</h1>
+  <span class="refresh-info" id="refreshInfo">Loading...</span>
+</div>
+
+<div class="grid">
+  <!-- Budget -->
+  <div class="card">
+    <h2>Budget</h2>
+    <div class="metric"><span class="label">Spent</span><span class="value accent" id="budgetSpent">-</span></div>
+    <div class="metric"><span class="label">Remaining</span><span class="value green" id="budgetRemaining">-</span></div>
+    <div class="metric"><span class="label">Total</span><span class="value" id="budgetTotal">-</span></div>
+    <div class="budget-bar"><div class="fill" id="budgetFill" style="width:0%; background: var(--green);"></div></div>
+  </div>
+
+  <!-- Session -->
+  <div class="card">
+    <h2>Session</h2>
+    <div class="metric"><span class="label">Branch</span><span class="value blue" id="branch">-</span></div>
+    <div class="metric"><span class="label">SHA</span><span class="value" id="sha">-</span></div>
+    <div class="metric"><span class="label">LLM Calls</span><span class="value" id="calls">-</span></div>
+    <div class="metric"><span class="label">Tokens (P/C/Cache)</span><span class="value" id="tokens">-</span></div>
+    <div class="metric"><span class="label">Evolution</span><span class="value" id="evolution">-</span></div>
+    <div class="metric"><span class="label">Last Message</span><span class="value" id="lastMsg">-</span></div>
+  </div>
+
+  <!-- Codex Auth -->
+  <div class="card">
+    <h2>Codex Auth</h2>
+    <div class="metric"><span class="label">Status</span><span class="value" id="codexStatus">-</span></div>
+    <div class="metric"><span class="label">Last Refresh</span><span class="value" id="codexRefresh">-</span></div>
+  </div>
+
+  <!-- Queue -->
+  <div class="card">
+    <h2>Task Queue</h2>
+    <div id="queueList" class="log-list"><em style="color:var(--text-dim)">No tasks</em></div>
+  </div>
+
+  <!-- Recent Logs -->
+  <div class="card full">
+    <h2>Recent Events</h2>
+    <div id="eventLogs" class="log-list"><em style="color:var(--text-dim)">Loading...</em></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+async function fetchJSON(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+function fmtTime(iso) {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = (now - d) / 1000;
+    if (diff < 60) return `${Math.floor(diff)}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return d.toLocaleDateString();
+  } catch { return iso; }
+}
+
+async function refresh() {
+  const [status, queue, events, codex] = await Promise.all([
+    fetchJSON('/api/status'),
+    fetchJSON('/api/queue'),
+    fetchJSON('/api/logs/events?limit=30'),
+    fetchJSON('/api/codex/status'),
+  ]);
+
+  if (status) {
+    $('statusDot').className = 'status-dot';
+    const b = status.budget;
+    $('budgetSpent').textContent = `$${b.spent.toFixed(2)}`;
+    $('budgetRemaining').textContent = `$${b.remaining.toFixed(2)}`;
+    $('budgetTotal').textContent = `$${b.total.toFixed(0)}`;
+    const pct = Math.min(100, b.pct);
+    $('budgetFill').style.width = pct + '%';
+    $('budgetFill').style.background = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--accent)' : 'var(--green)';
+
+    $('branch').textContent = status.branch || '-';
+    $('sha').textContent = (status.sha || '-').substring(0, 8);
+    $('calls').textContent = status.calls.toLocaleString();
+    const t = status.tokens;
+    $('tokens').textContent = `${(t.prompt||0).toLocaleString()} / ${(t.completion||0).toLocaleString()} / ${(t.cached||0).toLocaleString()}`;
+    const ev = status.evolution;
+    $('evolution').innerHTML = ev.enabled
+      ? `<span class="badge ok">ON</span> cycle ${ev.cycle}`
+      : '<span class="badge">OFF</span>';
+    $('lastMsg').textContent = fmtTime(status.last_owner_message);
+  } else {
+    $('statusDot').className = 'status-dot offline';
+  }
+
+  if (codex) {
+    $('codexStatus').innerHTML = codex.authenticated
+      ? '<span class="badge ok">Authenticated</span>'
+      : '<span class="badge err">Not authenticated</span>';
+    $('codexRefresh').textContent = codex.last_refresh || '-';
+  }
+
+  if (queue && queue.length > 0) {
+    $('queueList').innerHTML = queue.map(t =>
+      `<div class="queue-item"><span class="id">${esc(t.id||'?')}</span><span class="type">${esc(t.type||'?')}</span><span>pr:${esc(t.priority||0)}</span></div>`
+    ).join('');
+  } else {
+    $('queueList').innerHTML = '<em style="color:var(--text-dim)">Queue empty</em>';
+  }
+
+  if (events && events.length > 0) {
+    $('eventLogs').innerHTML = events.reverse().map(e => {
+      const ts = esc((e.ts || '').substring(11, 19));
+      return `<div class="log-entry"><span class="ts">${ts}</span><span class="type">${esc(e.type||e.event||'?')}</span>${e.task_id ? '<span>'+esc(e.task_id)+'</span>' : ''}</div>`;
+    }).join('');
+  } else {
+    $('eventLogs').innerHTML = '<em style="color:var(--text-dim)">No events</em>';
+  }
+
+  $('refreshInfo').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

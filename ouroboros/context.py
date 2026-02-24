@@ -303,7 +303,7 @@ def build_llm_messages(
     # --- Read base prompts and state ---
     base_prompt = _safe_read(
         env.repo_path("prompts/SYSTEM.md"),
-        fallback="You are Ouroboros. Your base prompt could not be loaded."
+        fallback="You are Prometheus. Your base prompt could not be loaded."
     )
     bible_md = _safe_read(env.repo_path("BIBLE.md"))
     readme_md = _safe_read(env.repo_path("README.md"))

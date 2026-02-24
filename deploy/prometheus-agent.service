@@ -1,0 +1,24 @@
+[Unit]
+Description=Prometheus AI Agent
+After=network.target
+
+[Service]
+Type=simple
+User=prometheus
+WorkingDirectory=/home/prometheus/prometheus/repo
+ExecStart=/home/prometheus/.local/bin/python launcher.py
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONPATH=/home/prometheus/prometheus/repo
+EnvironmentFile=-/home/prometheus/prometheus/config.env
+
+# Logging
+StandardOutput=append:/home/prometheus/prometheus/data/logs/agent-stdout.log
+StandardError=append:/home/prometheus/prometheus/data/logs/agent-stderr.log
+
+# Resource limits (2GB VPS)
+MemoryMax=1500M
+CPUQuota=90%
+
+[Install]
+WantedBy=multi-user.target

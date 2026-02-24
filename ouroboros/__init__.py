@@ -1,5 +1,5 @@
 """
-Ouroboros — self-modifying AI agent.
+Prometheus — self-modifying AI agent.
 
 Philosophy: BIBLE.md
 Architecture: agent.py (orchestrator), tools/ (plugin tools),
@@ -8,7 +8,7 @@ Architecture: agent.py (orchestrator), tools/ (plugin tools),
 """
 
 # IMPORTANT: Do NOT import agent/loop/llm/etc here!
-# colab_launcher.py imports ouroboros.apply_patch, which triggers __init__.py.
+# launcher.py imports ouroboros.apply_patch, which triggers __init__.py.
 # Any eager imports here get loaded into supervisor's memory and persist
 # in forked worker processes as stale code, preventing hot-reload.
 # Workers import make_agent directly from ouroboros.agent.

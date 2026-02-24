@@ -1,0 +1,21 @@
+[Unit]
+Description=Prometheus Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=prometheus
+WorkingDirectory=/home/prometheus/prometheus/repo
+ExecStart=/home/prometheus/.local/bin/python -m dashboard.server
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONPATH=/home/prometheus/prometheus/repo
+EnvironmentFile=-/home/prometheus/prometheus/config.env
+
+StandardOutput=append:/home/prometheus/prometheus/data/logs/dashboard-stdout.log
+StandardError=append:/home/prometheus/prometheus/data/logs/dashboard-stderr.log
+
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

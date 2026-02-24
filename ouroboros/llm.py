@@ -1,7 +1,7 @@
 """
-Ouroboros — LLM client.
+Prometheus — LLM client.
 
-The only module that communicates with the LLM API (OpenRouter).
+Tri-backend: Codex (ChatGPT OAuth), MiniMax (coding plan), OpenRouter (fallback).
 Contract: chat(), default_model(), available_models(), add_usage().
 """
 
@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 log = logging.getLogger(__name__)
 
 DEFAULT_LIGHT_MODEL = "google/gemini-3-pro-preview"
+DEFAULT_CODEX_MODEL = "codex-mini"
 
 
 def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
@@ -102,8 +103,22 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
         return {}
 
 
+def _is_codex_model(model: str) -> bool:
+    """Return True if model should be routed to Codex backend (no provider prefix, not MiniMax)."""
+    if "/" in model:
+        return False
+    if model.lower().startswith("minimax-"):
+        return False
+    return True
+
+
+def _is_minimax_model(model: str) -> bool:
+    """Return True if model should be routed to MiniMax backend."""
+    return model.lower().startswith("minimax-")
+
+
 class LLMClient:
-    """OpenRouter API wrapper. All LLM calls go through this class."""
+    """Tri-backend LLM client: Codex + MiniMax + OpenRouter."""
 
     def __init__(
         self,
@@ -113,6 +128,45 @@ class LLMClient:
         self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
         self._base_url = base_url
         self._client = None
+        self._codex_client = None
+        self._codex_init_attempted = False
+        self._minimax_client = None
+        self._minimax_init_attempted = False
+
+    def _get_codex_client(self):
+        """Lazy-init Codex client. Returns None if not authenticated."""
+        if not self._codex_init_attempted:
+            self._codex_init_attempted = True
+            try:
+                from ouroboros.codex_auth import CodexLLMClient
+                client = CodexLLMClient()
+                if client.is_authenticated:
+                    self._codex_client = client
+                    log.info("Codex backend available")
+                else:
+                    log.info("Codex auth not found, using OpenRouter only")
+            except Exception as e:
+                log.warning("Codex client init failed: %s", e)
+        return self._codex_client
+
+    def _get_minimax_client(self):
+        """Lazy-init MiniMax client. Returns None if no API key configured."""
+        if not self._minimax_init_attempted:
+            self._minimax_init_attempted = True
+            minimax_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+            if minimax_key:
+                try:
+                    from openai import OpenAI
+                    self._minimax_client = OpenAI(
+                        base_url="https://api.minimax.io/v1",
+                        api_key=minimax_key,
+                    )
+                    log.info("MiniMax backend available")
+                except Exception as e:
+                    log.warning("MiniMax client init failed: %s", e)
+            else:
+                log.info("MiniMax API key not found, skipping")
+        return self._minimax_client
 
     def _get_client(self):
         if self._client is None:
@@ -121,8 +175,8 @@ class LLMClient:
                 base_url=self._base_url,
                 api_key=self._api_key,
                 default_headers={
-                    "HTTP-Referer": "https://colab.research.google.com/",
-                    "X-Title": "Ouroboros",
+                    "HTTP-Referer": "https://github.com/usvimal/prometheus",
+                    "X-Title": "Prometheus",
                 },
             )
         return self._client
@@ -160,7 +214,33 @@ class LLMClient:
         max_tokens: int = 16384,
         tool_choice: str = "auto",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Single LLM call. Returns: (response_message_dict, usage_dict with cost)."""
+        """Single LLM call. Routes to Codex, MiniMax, or OpenRouter based on model name."""
+        # Route to MiniMax for MiniMax-* models
+        if _is_minimax_model(model):
+            mm_client = self._get_minimax_client()
+            if mm_client:
+                try:
+                    return self._chat_minimax(mm_client, messages, model, tools,
+                                              reasoning_effort, max_tokens, tool_choice)
+                except Exception as e:
+                    log.warning("MiniMax call failed: %s", e)
+                    raise
+
+        # Route to Codex for non-prefixed models
+        if _is_codex_model(model):
+            codex = self._get_codex_client()
+            if codex:
+                try:
+                    return codex.chat(
+                        messages=messages, model=model, tools=tools,
+                        reasoning_effort=reasoning_effort,
+                        max_tokens=max_tokens, tool_choice=tool_choice,
+                    )
+                except Exception as e:
+                    log.warning("Codex call failed, falling back to OpenRouter: %s", e)
+                    model = f"openai/{model}"
+
+        # OpenRouter path
         client = self._get_client()
         effort = normalize_reasoning_effort(reasoning_effort)
 
@@ -227,6 +307,34 @@ class LLMClient:
 
         return msg, usage
 
+    def _chat_minimax(
+        self,
+        client: Any,
+        messages: List[Dict[str, Any]],
+        model: str,
+        tools: Optional[List[Dict[str, Any]]],
+        reasoning_effort: str,
+        max_tokens: int,
+        tool_choice: str,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """MiniMax chat call via OpenAI-compatible API."""
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "extra_body": {"reasoning_split": True},
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+
+        resp = client.chat.completions.create(**kwargs)
+        resp_dict = resp.model_dump()
+        usage = resp_dict.get("usage") or {}
+        choices = resp_dict.get("choices") or [{}]
+        msg = (choices[0] if choices else {}).get("message") or {}
+        return msg, usage
+
     def vision_query(
         self,
         prompt: str,
@@ -280,16 +388,32 @@ class LLMClient:
 
     def default_model(self) -> str:
         """Return the single default model from env. LLM switches via tool if needed."""
-        return os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4.6")
+        env_model = os.environ.get("OUROBOROS_MODEL", "")
+        if env_model:
+            return env_model
+        # If Codex is available, default to Codex model
+        if self._get_codex_client():
+            return DEFAULT_CODEX_MODEL
+        return "anthropic/claude-sonnet-4.6"
 
     def available_models(self) -> List[str]:
         """Return list of available models from env (for switch_model tool schema)."""
-        main = os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4.6")
+        main = self.default_model()
         code = os.environ.get("OUROBOROS_MODEL_CODE", "")
         light = os.environ.get("OUROBOROS_MODEL_LIGHT", "")
         models = [main]
-        if code and code != main:
+        # Add Codex models if authenticated
+        if self._get_codex_client():
+            for cm in ["codex-mini", "o4-mini", "gpt-4.1"]:
+                if cm not in models:
+                    models.append(cm)
+        # Add MiniMax models if configured
+        if self._get_minimax_client():
+            for mm in ["MiniMax-M2.5", "MiniMax-M2.5-highspeed"]:
+                if mm not in models:
+                    models.append(mm)
+        if code and code not in models:
             models.append(code)
-        if light and light != main and light != code:
+        if light and light not in models:
             models.append(light)
         return models
