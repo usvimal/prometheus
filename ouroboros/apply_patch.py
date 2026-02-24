@@ -4,10 +4,18 @@ Writes apply_patch script to /usr/local/bin/ on import.
 
 Supports: *** Update File, *** Add File, *** Delete File, *** End of File.
 """
+import os
 import pathlib
 
 
-APPLY_PATCH_PATH = pathlib.Path("/usr/local/bin/apply_patch")
+def _apply_patch_path() -> pathlib.Path:
+    """Pick a writable location for the apply_patch script."""
+    preferred = pathlib.Path("/usr/local/bin/apply_patch")
+    if preferred.parent.exists() and os.access(str(preferred.parent), os.W_OK):
+        return preferred
+    return pathlib.Path.home() / ".local" / "bin" / "apply_patch"
+
+APPLY_PATCH_PATH = _apply_patch_path()
 APPLY_PATCH_CODE = r"""#!/usr/bin/env python3
 import os
 import sys
