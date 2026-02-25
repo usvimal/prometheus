@@ -186,6 +186,13 @@ def _switch_model(ctx: ToolContext, model: str = "", effort: str = "") -> str:
 
 def _get_task_result(ctx: ToolContext, task_id: str) -> str:
     """Read the result of a completed subtask."""
+    # Guard: prevent task from waiting for itself (causes infinite loop)
+    if ctx.task_id and task_id == ctx.task_id:
+        return (
+            f"ERROR: You ARE task {task_id}. You cannot wait for yourself. "
+            "You are the evolution/worker task — do the actual work: "
+            "read code, make changes, test, commit. Do NOT monitor yourself."
+        )
     results_dir = Path(ctx.drive_root) / "task_results"
     result_file = results_dir / f"{task_id}.json"
     if not result_file.exists():
@@ -199,6 +206,13 @@ def _get_task_result(ctx: ToolContext, task_id: str) -> str:
 
 def _wait_for_task(ctx: ToolContext, task_id: str) -> str:
     """Check if a subtask has completed. Call repeatedly to poll."""
+    # Guard: prevent task from waiting for itself (causes infinite loop)
+    if ctx.task_id and task_id == ctx.task_id:
+        return (
+            f"ERROR: You ARE task {task_id}. You cannot wait for yourself. "
+            "Stop monitoring — start DOING. Read code, pick a change, implement it, "
+            "test it, commit it. That is your job."
+        )
     results_dir = Path(ctx.drive_root) / "task_results"
     result_file = results_dir / f"{task_id}.json"
     if result_file.exists():

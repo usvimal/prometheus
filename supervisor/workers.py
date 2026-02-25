@@ -224,6 +224,19 @@ def auto_resume_after_restart() -> None:
         if not recent_restart:
             return
 
+        # Skip auto-resume when evolution mode is enabled —
+        # evolution tasks handle work, auto-resume just wastes LLM budget monitoring.
+        if bool(st.get("evolution_mode_enabled")):
+            append_jsonl(
+                DRIVE_ROOT / "logs" / "supervisor.jsonl",
+                {
+                    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "type": "auto_resume_skipped",
+                    "reason": "evolution_mode_enabled",
+                },
+            )
+            return
+
         # Check if scratchpad has meaningful content
         scratchpad_path = DRIVE_ROOT / "memory" / "scratchpad.md"
         if not scratchpad_path.exists():

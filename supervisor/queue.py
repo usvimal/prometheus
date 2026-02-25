@@ -347,8 +347,20 @@ def enforce_task_timeouts() -> None:
 # ---------------------------------------------------------------------------
 
 def build_evolution_task_text(cycle: int) -> str:
-    """Build evolution task text. Minimal trigger — SYSTEM.md has the full instructions."""
-    return f"EVOLUTION #{cycle}"
+    """Build evolution task text with actionable instructions."""
+    return (
+        f"EVOLUTION #{cycle}\n\n"
+        "You are running an evolution cycle. DO NOT monitor or wait for tasks. "
+        "YOU are the task — do the work directly:\n"
+        "1. Read your scratchpad and recent code changes (git log)\n"
+        "2. Identify one high-leverage improvement to the codebase\n"
+        "3. Implement it — edit files, write code\n"
+        "4. Test it — run the relevant tests or smoke-check\n"
+        "5. Commit with a version bump and clear message\n"
+        "6. Report what you did to the creator\n\n"
+        "NEVER call wait_for_task or get_task_result on your own task ID. "
+        "NEVER just read logs and monitor. ACT."
+    )
 
 
 def build_review_task_text(reason: str) -> str:
