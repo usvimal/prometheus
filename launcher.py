@@ -442,7 +442,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
 
     if lowered.startswith("/status"):
         from supervisor.state import status_text
-        send_with_budget(chat_id, status_text())
+        send_with_budget(chat_id, status_text(WORKERS, PENDING, RUNNING, SOFT_TIMEOUT_SEC, HARD_TIMEOUT_SEC))
         return True
 
     if lowered.startswith("/budget"):
@@ -527,6 +527,8 @@ def handle_one_update(offset: int) -> int:
 
     for upd in updates:
         msg = upd.get("message") or upd.get("edited_message") or {}
+        # Always advance offset first so we never re-process this update
+        offset = int(upd.get("update_id", 0)) + 1
         if not msg:
             continue
 
@@ -611,7 +613,6 @@ def handle_one_update(offset: int) -> int:
         })
         assign_tasks()
 
-        offset = int(upd.get("update_id", 0)) + 1
 
     return offset
 
