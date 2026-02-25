@@ -476,13 +476,23 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         return True
 
     if lowered.startswith("/queue"):
-        from supervisor.workers import sort_pending
-        pending = sort_pending(PENDING)
-        if not pending:
-            send_with_budget(chat_id, "Queue empty.")
+        pending = list(PENDING) if hasattr(PENDING, '__iter__') else []
+        running = dict(RUNNING) if hasattr(RUNNING, '__iter__') else {}
+        parts = []
+        if running:
+            r_lines = []
+            for tid, info in list(running.items())[:5]:
+                ttype = info.get("task_type", info.get("type", "?"))
+                desc = str(info.get("text", ""))[:40]
+                r_lines.append(f"  {tid[:8]} ({ttype}) {desc}")
+            parts.append("Running:\n" + "\n".join(r_lines))
+        if pending:
+            p_lines = [f"  {i+1}. {t.get('text', '?')[:50]}" for i, t in enumerate(pending[:10])]
+            parts.append("Pending:\n" + "\n".join(p_lines))
+        if not parts:
+            send_with_budget(chat_id, "Queue empty, nothing running.")
         else:
-            lines = [f"{i+1}. {t.get('desc', '?')[:50]}" for i, t in enumerate(pending[:10])]
-            send_with_budget(chat_id, "Pending:\n" + "\n".join(lines))
+            send_with_budget(chat_id, "\n\n".join(parts))
         return True
 
     if lowered.startswith("/kill"):
@@ -625,6 +635,16 @@ def handle_one_update(offset: int) -> int:
                     text = result + text
             except SystemExit:
                 raise
+            except Exception:
+                # Catch ALL errors in command handlers so they never prevent
+                # offset advancement (which would cause infinite re-processing
+                # of the same Telegram update — the /queue flood bug).
+                log.exception("Error handling supervisor command: %s", text[:50])
+                try:
+                    send_with_budget(chat_id, f"Command error: {text[:30]}. Check logs.")
+                except Exception:
+                    pass
+                continue  # Treat as handled — advance past this update
 
         # --- Dispatch to worker pool ---
         # image_data = None  # FIXME: wire this through if desired
