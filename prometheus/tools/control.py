@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import py_compile
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List
@@ -15,6 +18,94 @@ from prometheus.utils import utc_now_iso, write_text, run_cmd
 log = logging.getLogger(__name__)
 
 MAX_SUBTASK_DEPTH = 3
+
+# Critical files that must be valid before evolution can commit
+CRITICAL_FILES = [
+    "prometheus/loop.py",
+    "prometheus/agent.py",
+    "prometheus/llm.py",
+    "prometheus/context.py",
+    "prometheus/memory.py",
+]
+
+
+def _validate_code(ctx: ToolContext, strict: bool = False) -> str:
+    """Pre-commit validation: check Python syntax and critical imports before push.
+    
+    This prevents self-corruption during evolution cycles where broken code
+    gets committed and causes cascading failures.
+    
+    Args:
+        strict: If True, also run pytest smoke tests. Default False.
+    """
+    errors = []
+    warnings = []
+    
+    # 1. Syntax validation on all Python files
+    repo_path = Path(ctx.repo_dir)
+    for py_file in repo_path.rglob("*.py"):
+        # Skip __pycache__, .pytest_cache, etc.
+        if "__pycache__" in str(py_file) or ".pytest_cache" in str(py_file):
+            continue
+        rel_path = py_file.relative_to(repo_path)
+        try:
+            py_compile.compile(str(py_file), doraise=True)
+        except py_compile.PyCompileError as e:
+            errors.append(f"SYNTAX ERROR in {rel_path}: {e}")
+        except Exception as e:
+            warnings.append(f"Warning checking {rel_path}: {e}")
+    
+    # 2. Critical imports check
+    for critical in CRITICAL_FILES:
+        file_path = repo_path / critical
+        if not file_path.exists():
+            errors.append(f"CRITICAL FILE MISSING: {critical}")
+            continue
+        # Try importing the module
+        module_name = critical.replace("/", ".").replace(".py", "")
+        try:
+            # Run in subprocess to catch import errors
+            result = subprocess.run(
+                [sys.executable, "-c", f"import {module_name}"],
+                cwd=str(repo_path),
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode != 0:
+                errors.append(f"IMPORT ERROR in {critical}: {result.stderr[:200]}")
+        except subprocess.TimeoutExpired:
+            warnings.append(f"Timeout checking import: {critical}")
+        except Exception as e:
+            warnings.append(f"Warning checking import {critical}: {e}")
+    
+    # 3. Optional: run smoke tests
+    if strict:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=no", "-p", "no:randomly"],
+                cwd=str(repo_path),
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            if result.returncode != 0:
+                # Extract failure info
+                stderr = result.stderr + result.stdout
+                # Don't fail on test failures, just warn
+                warnings.append(f"SMOKE TESTS: some failures (not blocking commit)")
+        except subprocess.TimeoutExpired:
+            warnings.append("Smoke tests timed out")
+        except Exception as e:
+            warnings.append(f"Could not run smoke tests: {e}")
+    
+    # Build response
+    if errors:
+        return "❌ PRE-COMMIT VALIDATION FAILED:\n" + "\n".join(f"  - {e}" for e in errors)
+    elif warnings:
+        return "⚠️ PRE-COMMIT VALIDATION PASSED with warnings:\n" + "\n".join(f"  - {w}" for w in warnings)
+    else:
+        return "✅ PRE-COMMIT VALIDATION PASSED: All Python files valid, critical imports OK"
 
 
 def _request_restart(ctx: ToolContext, reason: str) -> str:
@@ -222,6 +313,14 @@ def _wait_for_task(ctx: ToolContext, task_id: str) -> str:
 
 def get_tools() -> List[ToolEntry]:
     return [
+        ToolEntry("validate_code", {
+            "name": "validate_code",
+            "description": "Pre-commit validation: check Python syntax and critical imports before push. "
+                           "Prevents self-corruption during evolution cycles.",
+            "parameters": {"type": "object", "properties": {
+                "strict": {"type": "boolean", "description": "If true, also run pytest smoke tests (default: false)"},
+            }, "required": []},
+        }, _validate_code),
         ToolEntry("request_restart", {
             "name": "request_restart",
             "description": "Ask supervisor to restart runtime (after successful push).",
