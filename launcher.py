@@ -117,6 +117,7 @@ os.environ["OUROBOROS_MODEL"] = str(MODEL_MAIN or "codex-mini")
 os.environ["OUROBOROS_MODEL_CODE"] = str(MODEL_CODE or "codex-mini")
 if MODEL_LIGHT:
     os.environ["OUROBOROS_MODEL_LIGHT"] = str(MODEL_LIGHT)
+os.environ.setdefault("OUROBOROS_MODEL_FALLBACK_LIST", "anthropic/claude-sonnet-4.6,google/gemini-2.5-pro-preview,openai/o3")
 os.environ["OUROBOROS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
 os.environ["OUROBOROS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
 os.environ["TELEGRAM_BOT_TOKEN"] = str(TELEGRAM_BOT_TOKEN)
