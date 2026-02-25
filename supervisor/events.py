@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
-from .state import StateManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ def on_event(event_type: str):
     return decorator
 
 
-def dispatch(evt: Dict[str, Any], ctx: Any) -> None:
+def dispatch_event(evt: Dict[str, Any], ctx: Any) -> None:
     """Dispatch an event to its handler."""
     event_type = evt.get("type")
     handler = _EVENT_HANDLERS.get(event_type)

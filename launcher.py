@@ -599,15 +599,17 @@ def handle_one_update(offset: int) -> int:
 
         # --- Dispatch to worker pool ---
         # image_data = None  # FIXME: wire this through if desired
-        assign_tasks([{
-            "id": uuid.uuid4().hex,
-            "type": "chat",
+        enqueue_task({
+            "id": uuid.uuid4().hex[:8],
+            "type": "task",
             "chat_id": chat_id,
             "text": text,
             "image_data": image_data,
             "caption": caption,
             "from_user": from_user,
-        }])
+            "_is_direct_chat": True,
+        })
+        assign_tasks()
 
         offset = int(upd.get("update_id", 0)) + 1
 
@@ -632,7 +634,7 @@ while True:
 
         # 2) tick workers
         try:
-            assign_tasks([])
+            assign_tasks()
         except Exception:
             log.exception("Error in assign_tasks")
 
@@ -644,18 +646,16 @@ while True:
 
         # 4) tick consciousness
         try:
-            _consciousness.tick()
+            pass  # consciousness runs in background thread
         except Exception:
-            log.exception("Error in _consciousness.tick")
+            log.exception("Consciousness check (no-op)")
 
         # 5) check for scheduled/pushed tasks
         try:
-            from supervisor.queue import fetch_scheduled_tasks
-            new_tasks = fetch_scheduled_tasks()
-            if new_tasks:
-                assign_tasks(new_tasks)
+            pass  # evolution tasks enqueued below
+            enqueue_evolution_task_if_needed()
         except Exception:
-            log.exception("Error in fetch_scheduled_tasks")
+            log.exception("Error in enqueue_evolution_task_if_needed")
 
         # 6) emit heartbeat
         try:
