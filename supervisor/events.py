@@ -88,6 +88,23 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
     task_type = str(evt.get("task_type") or "")
     wid = evt.get("worker_id")
 
+    # --- Clear RUNNING dict and free the worker ---
+    # Without this, completed tasks stay in RUNNING forever and the
+    # timeout enforcer kills them at 30 min (false hard-timeout).
+    if task_id and hasattr(ctx, "RUNNING") and task_id in ctx.RUNNING:
+        ctx.RUNNING.pop(task_id, None)
+        logger.info("Cleared RUNNING for completed task %s", task_id)
+    if wid is not None and hasattr(ctx, "WORKERS"):
+        worker = ctx.WORKERS.get(wid)
+        if worker is not None and getattr(worker, "busy_task_id", None) == task_id:
+            worker.busy_task_id = None
+            logger.info("Freed worker %s (was busy with %s)", wid, task_id)
+    if task_id and hasattr(ctx, "persist_queue_snapshot"):
+        try:
+            ctx.persist_queue_snapshot(reason="task_done")
+        except Exception:
+            logger.debug("Failed to persist queue snapshot after task_done", exc_info=True)
+
     # Track evolution task success/failure for circuit breaker
     if task_type == "evolution":
         st = ctx.load_state()

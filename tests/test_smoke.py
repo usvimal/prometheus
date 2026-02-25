@@ -117,6 +117,7 @@ EXPECTED_TOOLS = [
     "compact_context",
     "list_available_tools",
     "enable_tools",
+    "quick_search",
 ]
 
 
