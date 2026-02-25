@@ -442,7 +442,7 @@ def get_staged_files() -> List[str]:
     return [f for f in out.splitlines() if f.strip() and f.endswith(".py")]
 
 
-def get_diff_summary() -> str:
+def get_diff_summary() -> Dict[str, int]:
     """Return diff stats: files_changed, insertions, deletions."""
     rc, out, err = git_capture(["git", "diff", "--stat", "--cached"])
     if rc != 0:

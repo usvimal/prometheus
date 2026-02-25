@@ -451,7 +451,7 @@ class TestPrePushGate:
         from supervisor.git_ops import get_diff_summary
         # Should return string (may be empty)
         diff = get_diff_summary()
-        assert isinstance(diff, str)
+        assert isinstance(diff, dict)
 
 
 # ── Telegram supervisor tests ─────────────────────────────────────
