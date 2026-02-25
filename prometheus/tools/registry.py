@@ -189,3 +189,35 @@ class ToolRegistry:
     @property
     def CODE_TOOLS(self) -> frozenset:
         return frozenset(e.name for e in self._entries.values() if e.is_code_tool)
+
+    def get_tools(self) -> List[Dict[str, Any]]:
+        """Return all registered tools as a list of dicts (for backward compatibility)."""
+        return [
+            {
+                "name": e.name,
+                "schema": e.schema,
+                "is_code_tool": e.is_code_tool,
+                "timeout_sec": e.timeout_sec,
+            }
+            for e in self._entries.values()
+        ]
+
+
+# Module-level backward compatibility: create a default registry instance
+# and export its get_tools function
+_default_registry: Optional[ToolRegistry] = None
+
+
+def get_tools() -> List[Dict[str, Any]]:
+    """Backward-compatible function to get all tools.
+    
+    Note: This creates a temporary registry if one doesn't exist.
+    For proper use, instantiate ToolRegistry directly.
+    """
+    global _default_registry
+    if _default_registry is None:
+        import os
+        repo_dir = pathlib.Path(os.environ.get("REPO_DIR", "/home/vimal2/prometheus/repo"))
+        drive_root = pathlib.Path(os.environ.get("DRIVE_ROOT", "/home/vimal2/prometheus/data"))
+        _default_registry = ToolRegistry(repo_dir, drive_root)
+    return _default_registry.get_tools()
