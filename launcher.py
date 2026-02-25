@@ -366,6 +366,11 @@ def _safe_qsize(q: Any) -> int:
         return -1
 
 
+# Rate limiter for read-only supervisor commands (prevent /queue flood)
+_CMD_RATE_LIMIT: Dict[str, float] = {}  # cmd -> last_processed_ts
+_CMD_RATE_LIMIT_SEC = 2.0  # min seconds between identical commands
+
+
 def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     """Handle supervisor slash-commands.
 
@@ -375,6 +380,17 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         ""    — not a recognized command (falsy, caller falls through)
     """
     lowered = text.strip().lower()
+
+    # Rate-limit read-only commands to prevent flood
+    rate_limited_cmds = ("/queue", "/status", "/budget", "/workers", "/evolve")
+    for prefix in rate_limited_cmds:
+        if lowered.startswith(prefix) and " " not in lowered.strip().strip("/"):
+            now = time.time()
+            last = _CMD_RATE_LIMIT.get(prefix, 0)
+            if (now - last) < _CMD_RATE_LIMIT_SEC:
+                return True  # silently skip duplicate
+            _CMD_RATE_LIMIT[prefix] = now
+            break
 
     if lowered.startswith("/panic"):
         send_with_budget(chat_id, "PANIC: stopping everything now.")
