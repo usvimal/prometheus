@@ -481,15 +481,26 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
 
     if lowered.startswith("/evolve"):
         if "start" in lowered:
-            enqueue_evolution_task_if_needed(force=True)
-            send_with_budget(chat_id, "Evolution started.")
+            st = load_state()
+            st["evolution_mode_enabled"] = True
+            st["evolution_consecutive_failures"] = 0
+            st.pop("evolution_paused", None)
+            save_state(st)
+            enqueue_evolution_task_if_needed()
+            send_with_budget(chat_id, "🧬 Evolution enabled.")
         elif "stop" in lowered:
             st = load_state()
+            st["evolution_mode_enabled"] = False
             st["evolution_paused"] = True
             save_state(st)
-            send_with_budget(chat_id, "Evolution paused.")
+            send_with_budget(chat_id, "🧬 Evolution paused.")
         else:
-            send_with_budget(chat_id, "Usage: /evolve start|stop")
+            st = load_state()
+            enabled = bool(st.get("evolution_mode_enabled"))
+            failures = int(st.get("evolution_consecutive_failures") or 0)
+            cycle = int(st.get("evolution_cycle") or 0)
+            status = "running" if enabled else "paused"
+            send_with_budget(chat_id, f"🧬 Evolution: {status} (cycle {cycle}, failures: {failures})")
         return True
 
     if lowered.startswith("/bg"):
