@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import queue
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -110,6 +111,125 @@ def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int,
     )
     return round(cost, 6)
 
+
+def _repair_json(malformed: str, fn_name: str = "") -> Optional[Dict[str, Any]]:
+    """
+    Attempt to repair malformed JSON from LLM tool arguments.
+    
+    Strategies tried in order:
+    1. Strip trailing commas before closing braces/brackets
+    2. Remove control characters and whitespace issues
+    3. Fix unquoted property names (simple cases)
+    4. Handle truncated JSON (find valid prefix)
+    5. Strip markdown code blocks
+    
+    Returns repaired dict or None if all strategies fail.
+    """
+    if not malformed:
+        return {}
+    
+    original = malformed
+    repair_strategy = "none"
+    
+    # Strategy 1: Strip markdown code blocks
+    cleaned = malformed.strip()
+    if cleaned.startswith("```"):
+        # Remove ```json or ```python or ``` blocks
+        lines = cleaned.split('\n')
+        if lines[0].strip().startswith("```"):
+            lines = lines[1:]  # Remove first line with ```
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]  # Remove last line with ```
+        cleaned = '\n'.join(lines)
+        repair_strategy = "strip_markdown"
+    
+    # Strategy 2: Strip trailing commas (common LLM mistake)
+    # Pattern: comma followed by } or ]
+    fixed = re.sub(r',([\s]*[}\]])', r'\1', cleaned)
+    if fixed != cleaned:
+        repair_strategy = "trailing_comma"
+        cleaned = fixed
+    
+    # Strategy 3: Remove control characters
+    fixed = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned)
+    if fixed != cleaned:
+        repair_strategy = "control_chars"
+        cleaned = fixed
+    
+    # Strategy 4: Fix unquoted simple keys (e.g., {key: "value"})
+    # Only handles alphanumeric keys, not reserved words
+    fixed = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', cleaned)
+    if fixed != cleaned:
+        repair_strategy = "unquoted_keys"
+        cleaned = fixed
+    
+    # Strategy 5: Handle truncated JSON - find valid prefix
+    # Try to close open braces/brackets
+    if not cleaned.startswith("{"):
+        # Not a dict, can't repair
+        pass
+    else:
+        stack = []
+        i = 0
+        while i < len(cleaned):
+            c = cleaned[i]
+            if c == '{':
+                stack.append('}')
+            elif c == '[':
+                stack.append(']')
+            elif c == '}' and stack and stack[-1] == '}':
+                stack.pop()
+            elif c == ']' and stack and stack[-1] == ']':
+                stack.pop()
+            elif c == '"' and (i == 0 or cleaned[i-1] != '\\'):
+                # Skip string
+                i += 1
+                while i < len(cleaned):
+                    if cleaned[i] == '"' and cleaned[i-1] != '\\':
+                        break
+                    i += 1
+            i += 1
+        
+        if stack:
+            # Close remaining brackets
+            while stack:
+                cleaned += stack.pop()
+            repair_strategy = "close_brackets"
+    
+    # Try parsing the repaired JSON
+    try:
+        parsed = json.loads(cleaned)
+        if repair_strategy != "none":
+            log.info(f"JSON repair succeeded for {fn_name}: strategy={repair_strategy}")
+        return parsed
+    except json.JSONDecodeError:
+        pass
+    
+    # Final fallback: try to extract just the arguments we care about
+    # This is a desperate measure for severely broken JSON
+    try:
+        # Look for key-value patterns like "key": value
+        kv_pattern = r'"([^"]+)"\s*:\s*("[^"]*"|[\d.\-]+|\{[^}]*\}|\[[^\]]*\])'
+        matches = re.findall(kv_pattern, cleaned)
+        if matches:
+            result = {}
+            for key, val in matches:
+                try:
+                    # Try to parse the value as JSON
+                    result[key] = json.loads(val)
+                except:
+                    # Use as string
+                    result[key] = val.strip('"')
+            if result:
+                log.info(f"JSON repair fallback succeeded for {fn_name}: extracted {len(result)} keys")
+                return result
+    except Exception as e:
+        log.warning(f"JSON repair fallback failed for {fn_name}: {e}")
+    
+    log.warning(f"JSON repair failed for {fn_name}, original length={len(original)}")
+    return None
+
+
 READ_ONLY_PARALLEL_TOOLS = frozenset({
     "repo_read", "repo_list",
     "drive_read", "drive_list",
@@ -147,19 +267,27 @@ def _execute_single_tool(
     tool_call_id = tc["id"]
     is_code_tool = fn_name in tools.CODE_TOOLS
 
-    # Parse arguments
+    # Parse arguments - with JSON repair on failure
+    args = None
+    raw_args = tc["function"].get("arguments") or "{}"
     try:
-        args = json.loads(tc["function"]["arguments"] or "{}")
+        args = json.loads(raw_args)
     except (json.JSONDecodeError, ValueError) as e:
-        result = f"⚠️ TOOL_ARG_ERROR: Could not parse arguments for '{fn_name}': {e}"
-        return {
-            "tool_call_id": tool_call_id,
-            "fn_name": fn_name,
-            "result": result,
-            "is_error": True,
-            "args_for_log": {},
-            "is_code_tool": is_code_tool,
-        }
+        # Try to repair malformed JSON
+        repaired = _repair_json(raw_args, fn_name)
+        if repaired is not None:
+            args = repaired
+            log.info(f"Tool {fn_name}: used repaired JSON instead of failing")
+        else:
+            result = f"⚠️ TOOL_ARG_ERROR: Could not parse arguments for '{fn_name}': {e}. Also failed JSON repair."
+            return {
+                "tool_call_id": tool_call_id,
+                "fn_name": fn_name,
+                "result": result,
+                "is_error": True,
+                "args_for_log": {},
+                "is_code_tool": is_code_tool,
+            }
 
     args_for_log = sanitize_tool_args_for_log(fn_name, args if isinstance(args, dict) else {})
 
@@ -246,7 +374,9 @@ def _make_timeout_result(
     """
     args_for_log = {}
     try:
-        args = json.loads(tc["function"]["arguments"] or "{}")
+        raw_args = tc["function"].get("arguments") or "{}"
+        args = json.loads(raw_args)
+        args = _repair_json(raw_args, fn_name) if args is None else args
         args_for_log = sanitize_tool_args_for_log(fn_name, args if isinstance(args, dict) else {})
     except Exception:
         pass
@@ -308,10 +438,10 @@ def _execute_with_timeout(
             reset_msg = "Browser state has been reset. "
             return _make_timeout_result(
                 fn_name, tool_call_id, is_code_tool, tc, drive_logs,
-                timeout_sec, task_id, reset_msg
+                timeout_sec, task_id, reset    else:
+       _msg
             )
-    else:
-        # Regular executor: explicit lifecycle to avoid shutdown(wait=True) deadlock
+ # Regular executor: explicit lifecycle to avoid shutdown(wait=True) deadlock
         executor = ThreadPoolExecutor(max_workers=1)
         try:
             future = executor.submit(_execute_single_tool, tools, tc, drive_logs, task_id)
@@ -425,88 +555,29 @@ def _check_budget_limits(
 
     if budget_pct > 0.5:
         # Hard stop — protect the budget
-        finish_reason = f"Task spent ${task_cost:.2f} ({budget_pct*100:.0f}% of budget). Stopping to protect remaining funds."
-        llm_trace["finish_reason"] = finish_reason
+        finish_reason = f"Task spent ${task_cost:.2f} of ${budget_remaining_usd:.2f} budget ({budget_pct*100:.0f}%)."
+        log.warning(f"[{task_id}] Budget hard stop at round {round_idx}: {finish_reason}")
         append_jsonl(drive_logs / "events.jsonl", {
-            "ts": utc_now_iso(), "type": "budget_exceeded",
+            "ts": utc_now_iso(), "type": "budget_hard_stop",
             "task_id": task_id, "task_type": task_type,
-            "task_cost": task_cost, "budget_remaining": budget_remaining_usd,
-            "budget_pct": budget_pct,
+            "cost": task_cost, "budget": budget_remaining_usd,
+            "round": round_idx,
         })
         return (finish_reason, accumulated_usage, llm_trace)
 
     if budget_pct > 0.25:
-        # Soft warning at 25%
-        warning = f"⚠️ Task has spent ${task_cost:.2f} ({budget_pct*100:.0f}% of budget)"
-        log.warning(warning)
+        # Soft warning — encourage the agent to wrap up
+        warn_msg = f"⚠️ Budget warning: {budget_pct*100:.0f}% spent (${task_cost:.2f}/${budget_remaining_usd:.2f}). Consider wrapping up."
         if event_queue:
-            event_queue.put(("progress", warning))
-        llm_trace["budget_warning"] = warning
+            event_queue.put({"type": "progress", "text": warn_msg})
+        append_jsonl(drive_logs / "events.jsonl", {
+            "ts": utc_now_iso(), "type": "budget_warning",
+            "task_id": task_id, "task_type": task_type,
+            "cost": task_cost, "budget": budget_remaining_usd,
+            "pct": budget_pct, "round": round_idx,
+        })
 
     return None
-
-
-def _check_empty_response(
-    response: Optional[Dict[str, Any]],
-    retry_count: int,
-    max_retries: int,
-    active_model: str,
-    fallback_models: List[str],
-    llm: LLMClient,
-    messages: List[Dict[str, Any]],
-    accumulated_usage: Dict[str, Any],
-    drive_logs: pathlib.Path,
-    task_id: str,
-    emit_progress: Callable[[str], None],
-) -> Tuple[Optional[Dict[str, Any]], int, str]:
-    """
-    Check for empty model response and handle fallback/retry.
-
-    Returns: (response, retry_count, active_model)
-    """
-    if response and response.get("content"):
-        return response, retry_count, active_model
-
-    # Empty response detected
-    retry_count += 1
-    log.warning(f"Empty response from {active_model} (retry {retry_count}/{max_retries})")
-    emit_progress(f"⚠️ Empty response from {active_model}, retry {retry_count}/{max_retries}")
-
-    append_jsonl(drive_logs / "events.jsonl", {
-        "ts": utc_now_iso(), "type": "empty_response",
-        "task_id": task_id, "model": active_model,
-        "retry": retry_count,
-    })
-
-    # Retry with same model
-    if retry_count < max_retries:
-        return None, retry_count, active_model
-
-    # Try fallback models
-    for fallback in fallback_models:
-        if fallback == active_model:
-            continue
-        log.warning(f"Empty response from {active_model}, trying fallback {fallback}")
-        emit_progress(f"⚠️ {active_model} failed, trying {fallback}...")
-
-        try:
-            response = llm.chat(
-                model=fallback,
-                messages=messages,
-                tools=None,
-            )
-            if response and response.get("content"):
-                append_jsonl(drive_logs / "events.jsonl", {
-                    "ts": utc_now_iso(), "type": "fallback_success",
-                    "task_id": task_id, "original_model": active_model,
-                    "fallback_model": fallback,
-                })
-                return response, 0, fallback
-        except Exception as e:
-            log.warning(f"Fallback {fallback} also failed: {e}")
-
-    # All failed
-    return None, retry_count, active_model
 
 
 def _process_tool_results(
@@ -516,257 +587,83 @@ def _process_tool_results(
     emit_progress: Callable[[str], None],
 ) -> int:
     """
-    Process tool results and append to messages.
+    Process tool results and add to messages.
 
     Returns: Number of errors encountered
     """
     error_count = 0
     for r in results:
-        tc_result = {
-            "role": "tool",
-            "tool_call_id": r["tool_call_id"],
-            "content": _truncate_tool_result(r["result"]),
-        }
-        messages.append(tc_result)
+        tool_call_id = r["tool_call_id"]
+        fn_name = r["fn_name"]
+        result = r["result"]
+        is_error = r["is_error"]
+        args_for_log = r["args_for_log"]
 
-        if r["is_error"]:
+        if is_error:
             error_count += 1
-            err_msg = f"Tool error: {r['fn_name']}: {r['result'][:200]}"
-            log.warning(err_msg)
-            emit_progress(err_msg)
-            llm_trace["tool_errors"].append({
-                "tool": r["fn_name"],
-                "error": r["result"][:200],
-            })
+            llm_trace["tool_errors"].append(fn_name)
         else:
-            llm_trace["tool_results"].append({
-                "tool": r["fn_name"],
-                "result_preview": r["result"][:200],
-            })
+            llm_trace["tool_successes"].append(fn_name)
+
+        # Add tool result message to history
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": str(result)[:32000],
+        })
+
+        # Emit progress for errors (not for every success to reduce noise)
+        if is_error and emit_progress:
+            emit_progress(f"Tool error: {fn_name} — {str(result)[:200]}")
 
     return error_count
 
 
-def run_loop(
+def _extract_and_validate_tool_calls(
     llm: LLMClient,
-    tools: ToolRegistry,
-    messages: List[Dict[str, Any]],
-    task_id: str,
-    task_type: str = "task",
-    budget_remaining_usd: Optional[float] = None,
-    max_rounds: int = 200,
-    max_retries: int = 3,
-    emit_progress: Optional[Callable[[str], None]] = None,
-    drive_logs: Optional[pathlib.Path] = None,
-    event_queue: Optional[queue.Queue] = None,
-    active_model: Optional[str] = None,
-    active_effort: Optional[str] = None,
-) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+    response: Dict[str, Any],
+    fn_name: str,
+) -> List[Dict[str, Any]]:
     """
-    Core LLM tool loop.
-
-    Args:
-        llm: LLM client instance
-        tools: Tool registry
-        messages: Conversation messages (modified in place)
-        task_id: Task identifier
-        task_type: Type of task (task/evolution/direct)
-        budget_remaining_usd: Budget cap in USD (None = unlimited)
-        max_rounds: Maximum LLM rounds
-        max_retries: Max retries on empty response
-        emit_progress: Callback for progress messages
-        drive_logs: Path to logs directory
-        event_queue: Queue for supervisor events
-        active_model: Override model (None = use llm.model)
-        active_effort: Reasoning effort (None = default)
-
-    Returns:
-        (final_text, usage_dict, llm_trace)
+    Extract tool calls from LLM response, with JSON repair on failure.
     """
-    if emit_progress is None:
-        emit_progress = lambda x: None
-    if drive_logs is None:
-        drive_logs = pathlib.Path("/home/vimal2/prometheus/data/logs")
-
-    fallback_models = os.environ.get("OUROBOROS_MODEL_FALLBACK_LIST", "").split(",")
-    fallback_models = [m.strip() for m in fallback_models if m.strip()]
-
-    # State
-    round_idx = 0
-    retry_count = 0
-    if active_model is None:
-        active_model = llm.model
-    active_effort = normalize_reasoning_effort(active_effort)
-
-    # Trace for observability
-    llm_trace: Dict[str, Any] = {
-        "task_id": task_id,
-        "task_type": task_type,
-        "model": active_model,
-        "rounds": [],
-        "tool_results": [],
-        "tool_errors": [],
-        "assistant_notes": [],
-        "finish_reason": None,
-    }
-
-    accumulated_usage: Dict[str, Any] = {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "cost": 0.0,
-    }
-
-    # Thread-sticky executor for stateful tools
-    stateful_executor = _StatefulToolExecutor()
-
-    try:
-        while round_idx < max_rounds:
-            round_idx += 1
-            llm_trace["rounds"].append(round_idx)
-
-            # Soft self-check at 50/100/150
-            if round_idx in (50, 100, 150):
-                # Ask myself: am I stuck? Should I summarize? Try differently?
-                self_check_prompt = (
-                    f"[Self-check at round {round_idx}/{max_rounds}] "
-                    "Review the conversation so far. Are you stuck in a loop? "
-                    "Should you summarize context or try a different approach? "
-                    "Reply with a brief self-assessment (1-2 sentences)."
-                )
-                # Bypass tools - just a quick self-reflection
-                log.info(f"Self-check at round {round_idx}")
-
-            # Check budget
-            budget_check = _check_budget_limits(
-                budget_remaining_usd, accumulated_usage, round_idx,
-                messages, llm, active_model, active_effort,
-                max_retries, drive_logs, task_id, event_queue, llm_trace, task_type,
-            )
-            if budget_check:
-                return budget_check
-
-            # Emit progress
-            round_msg = f"[{task_type[:3].upper()}] {task_id[:8]} round {round_idx}/{max_rounds}"
-            if round_idx % 10 == 0:
-                emit_progress(round_msg)
-            log.info(round_msg)
-
-            # Compact old tool history when needed
-            # Check for LLM-requested compaction first (via compact_context tool)
-            pending_compaction = getattr(tools._ctx, '_pending_compaction', None)
-            if pending_compaction is not None:
-                messages = compact_tool_history_llm(messages, keep_recent=pending_compaction)
-                tools._ctx._pending_compaction = None
-            elif round_idx > 6:
-                # Aggressive compaction: keep 8 recent rounds (was 6 at round 8)
-                # Prevents max_tokens failures in long-running tasks
-                messages = compact_tool_history(messages, keep_recent=8)
-            elif round_idx > 2:
-                # Light compaction: trigger earlier (was round 3, >60 messages)
-                if len(messages) > 40:
-                    messages = compact_tool_history(messages, keep_recent=8)
-
-            # Call LLM
-            try:
-                response = llm.chat(
-                    model=active_model,
-                    messages=messages,
-                    tools=tools.get_schemas(),
-                    reasoning_effort=active_effort,
-                )
-            except Exception as e:
-                err_msg = f"LLM error: {type(e).__name__}: {e}"
-                log.error(err_msg)
-                emit_progress(f"⚠️ {err_msg}")
-                append_jsonl(drive_logs / "events.jsonl", {
-                    "ts": utc_now_iso(), "type": "llm_error",
-                    "task_id": task_id, "error": repr(e),
-                })
-                llm_trace["llm_errors"] = llm_trace.get("llm_errors", []) + [repr(e)]
-
-                # Retry logic
-                retry_count += 1
-                if retry_count <= max_retries:
-                    continue
-                else:
-                    final_text = f"⚠️ LLM error after {max_retries} retries: {e}"
-                    llm_trace["finish_reason"] = "llm_error"
-                    return final_text, accumulated_usage, llm_trace
-
-            # Check for empty response
-            response, retry_count, active_model = _check_empty_response(
-                response, retry_count, max_retries, active_model,
-                fallback_models, llm, messages, accumulated_usage,
-                drive_logs, task_id, emit_progress,
-            )
-
-            if response is None:
-                # All models failed
-                final_text = "⚠️ Failed to get a response from the model after 3 attempts. Fallback models also returned no response."
-                llm_trace["finish_reason"] = "empty_response"
-                emit_progress(final_text)
-                return final_text, accumulated_usage, llm_trace
-
-            # Extract response
-            response = llm.normalize_response(response)
-            content = llm.extract_content(response)
-            tool_calls = llm.extract_tool_calls(response)
-
-            # Track usage
-            usage = llm.extract_usage(response)
-            if usage:
-                add_usage(accumulated_usage, usage)
-                usage_cost = _estimate_cost(
-                    active_model,
-                    usage.get("prompt_tokens", 0),
-                    usage.get("completion_tokens", 0),
-                    usage.get("cached_tokens", 0),
-                )
-                accumulated_usage["cost"] += usage_cost
-
-                append_jsonl(drive_logs / "events.jsonl", {
-                    "ts": utc_now_iso(), "type": "llm_usage",
-                    "task_id": task_id, "round": round_idx,
-                    "model": active_model,
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "cost": usage_cost,
-                })
-
-            # Handle response
-            if tool_calls:
-                error_count = _handle_tool_calls(
-                    tool_calls, tools, drive_logs, task_id,
-                    stateful_executor, messages, llm_trace, emit_progress,
-                )
-
-                if error_count:
-                    llm_trace["round_errors"] = llm_trace.get("round_errors", 0) + error_count
-                    log.warning(f"Round {round_idx}: {error_count} tool errors")
-
-                # Check budget after tools too
-                budget_check = _check_budget_limits(
-                    budget_remaining_usd, accumulated_usage, round_idx,
-                    messages, llm, active_model, active_effort,
-                    max_retries, drive_logs, task_id, event_queue, llm_trace, task_type,
-                )
-                if budget_check:
-                    return budget_check
-
+    tool_calls = llm.extract_tool_calls(response)
+    
+    # If extraction failed, try to repair malformed tool_calls
+    if not tool_calls and response.get("tool_calls"):
+        raw_calls = response.get("tool_calls", [])
+        repaired_calls = []
+        for tc in raw_calls:
+            if not tc.get("function", {}).get("arguments"):
                 continue
+            fn = tc.get("function", {}).get("name", "")
+            raw_args = tc["function"]["arguments"]
+            try:
+                parsed = json.loads(raw_args)
+            except:
+                parsed = _repair_json(raw_args, fn)
+            if parsed is not None:
+                repaired_calls.append({
+                    "id": tc.get("id", f"repaired_{fn}"),
+                    "type": "function",
+                    "function": {
+                        "name": fn,
+                        "arguments": json.dumps(parsed),
+                    }
+                })
+        if repaired_calls:
+            log.info(f"Repaired {len(repaired_calls)} tool calls from malformed response")
+            tool_calls = repaired_calls
+    
+    return tool_calls
 
-            # Final response (no tools)
-            final_text, accumulated_usage, llm_trace = _handle_text_response(
-                content, llm_trace, accumulated_usage,
-            )
-            llm_trace["finish_reason"] = "stop"
-            return final_text, accumulated_usage, llm_trace
 
-        # Max rounds reached
-        final_text = f"⚠️ Max rounds ({max_rounds}) reached. Task stopped."
-        llm_trace["finish_reason"] = "max_rounds"
-        emit_progress(final_text)
-        return final_text, accumulated_usage, llm_trace
+def _get_system_prompt(task_type: str, context_tokens: int, model: str) -> str:
+    """
+    Build system prompt with current task type and context info.
+    """
+    return f"""You are Ouroboros, a self-modifying AI agent. You are currently running task type: {task_type}.
 
-    finally:
-        stateful_executor.shutdown(wait=False, cancel_futures=True)
+Context: {context_tokens} tokens in the conversation. Model: {model}.
+Your goal is to accomplish the task by using tools and reasoning.
+"""
