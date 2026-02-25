@@ -41,6 +41,30 @@ def dispatch_event(evt: Dict[str, Any], ctx: Any) -> None:
 # ============================================================================
 
 
+@on_event("send_message")
+def _handle_send_message(evt, ctx):
+    """Send a message to Telegram (from worker process)."""
+    try:
+        log_text = evt.get("log_text")
+        fmt = str(evt.get("format") or "")
+        is_progress = bool(evt.get("is_progress"))
+        ctx.send_with_budget(
+            int(evt["chat_id"]),
+            str(evt.get("text") or ""),
+            log_text=(str(log_text) if isinstance(log_text, str) else None),
+            fmt=fmt,
+            is_progress=is_progress,
+        )
+    except Exception as e:
+        ctx.append_jsonl(
+            ctx.DRIVE_ROOT / "logs" / "supervisor.jsonl",
+            {
+                "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "type": "send_message_event_error", "error": repr(e),
+            },
+        )
+
+
 @on_event("task_received")
 def _handle_task_received(evt: Dict[str, Any], ctx: Any) -> None:
     """Log task receipt."""

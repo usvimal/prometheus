@@ -638,6 +638,18 @@ while True:
         except Exception:
             log.exception("Error in handle_one_update")
 
+        # 1.5) drain worker events (send_message, task_done, etc.)
+        try:
+            event_q = get_event_q()
+            while True:
+                try:
+                    evt = event_q.get_nowait()
+                except _queue_mod.Empty:
+                    break
+                dispatch_event(evt, _event_ctx)
+        except Exception:
+            log.exception("Error draining event queue")
+
         # 2) tick workers
         try:
             assign_tasks()
