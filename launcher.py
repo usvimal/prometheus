@@ -117,7 +117,8 @@ os.environ["OUROBOROS_MODEL"] = str(MODEL_MAIN or "codex-mini")
 os.environ["OUROBOROS_MODEL_CODE"] = str(MODEL_CODE or "codex-mini")
 if MODEL_LIGHT:
     os.environ["OUROBOROS_MODEL_LIGHT"] = str(MODEL_LIGHT)
-os.environ.setdefault("OUROBOROS_MODEL_FALLBACK_LIST", "anthropic/claude-sonnet-4.6,google/gemini-2.5-pro-preview,openai/o3")
+# Fallback chain: Anthropic (reliable) → OpenAI o3 (fast fallback) → Google (last resort)
+os.environ.setdefault("OUROBOROS_MODEL_FALLBACK_LIST", "anthropic/claude-sonnet-4.6,openai/o3,google/gemini-2.5-pro-preview")
 os.environ["OUROBOROS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
 os.environ["OUROBOROS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
 os.environ["TELEGRAM_BOT_TOKEN"] = str(TELEGRAM_BOT_TOKEN)
@@ -422,351 +423,258 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
             _pending_oauth["code_verifier"] = verifier
             _pending_oauth["state"] = state
             send_with_budget(chat_id,
-                f"Open this URL to authenticate with ChatGPT:\n\n{url}\n\n"
-                "After logging in, you'll be redirected. Copy the full redirect URL "
-                "and send it here with /callback <url>")
+                f"Open this link to authenticate:\n{url}\n\n"
+                "Then send the code you receive.",
+            )
+            return True
         except Exception as e:
-            send_with_budget(chat_id, f"Login failed: {e}")
-        return True
-
-    # /callback — Complete OAuth flow
-    if lowered.startswith("/callback"):
-        try:
-            from prometheus.codex_auth import exchange_code_for_tokens, save_auth
-            from urllib.parse import urlparse, parse_qs
-            parts = text.strip().split(maxsplit=1)
-            if len(parts) < 2:
-                send_with_budget(chat_id, "Usage: /callback <redirect_url>")
-                return True
-            callback_url = parts[1].strip()
-            parsed = urlparse(callback_url)
-            query = parse_qs(parsed.query)
-            code = query.get("code", [None])[0]
-            state = query.get("state", [None])[0]
-            if not code:
-                send_with_budget(chat_id, "No code in callback URL.")
-                return True
-            if state != _pending_oauth.get("state"):
-                send_with_budget(chat_id, "State mismatch, possible CSRF.")
-                return True
-            tokens = exchange_code_for_tokens(code, _pending_oauth["code_verifier"])
-            save_auth(tokens)
-            send_with_budget(chat_id, "Authenticated! You can now use ChatGPT features.")
-            _pending_oauth.clear()
-        except Exception as e:
-            send_with_budget(chat_id, f"Callback failed: {e}")
-        return True
+            send_with_budget(chat_id, f"Login error: {e}")
+            return True
 
     if lowered.startswith("/status"):
-        from supervisor.state import status_text
-        send_with_budget(chat_id, status_text(WORKERS, PENDING, RUNNING, SOFT_TIMEOUT_SEC, HARD_TIMEOUT_SEC))
+        st = load_state()
+        workers = ensure_workers_healthy()
+        qsize = _safe_qsize(WORKERS)
+        status = status_text()
+        send_with_budget(chat_id, status)
+        return True
+
+    if lowered.startswith("/queue"):
+        pending = list(PENDING.queue) if hasattr(PENDING, 'queue') else list(PENDING)
+        running = dict(RUNNING) if hasattr(RUNNING, 'items') else dict(RUNNING) if RUNNING else {}
+        running_desc = [f"  • {tid}: {info.get('type', '?')[:30]} (started {info.get('started_at', '?')[:19]})"
+                        for tid, info in running.items()]
+        pending_desc = [f"  • {info.get('type', '?')[:30]}" for info in pending[:5]]
+        msg = "**Workers:**\n" + "\n".join(running_desc or ["  (idle)"])
+        msg += "\n\n**Pending:**\n" + "\n".join(pending_desc or ["  (empty)"])
+        send_with_budget(chat_id, msg)
         return True
 
     if lowered.startswith("/budget"):
         st = load_state()
-        remaining = st.get("budget_remaining", 0.0)
-        total = TOTAL_BUDGET_LIMIT
-        used = total - remaining
-        send_with_budget(chat_id, f"Budget: ${used:.2f} used / ${total:.2f} total")
+        spent = st.get("spent_usd", 0)
+        limit = TOTAL_BUDGET_LIMIT
+        pct = (spent / limit * 100) if limit else 0
+        msg = f"💰 **Budget**\n\n"
+        msg += f"Spent: ${spent:.2f} / ${limit:.2f} ({pct:.1f}%)\n"
+        msg += f"Calls: {st.get('spent_calls', 0)}"
+        send_with_budget(chat_id, msg)
         return True
 
     if lowered.startswith("/workers"):
-        st = load_state()
-        w_ids = list(WORKERS.keys())
-        send_with_budget(chat_id, f"Workers: {len(w_ids)} active, {_safe_qsize(PENDING)} pending.")
+        workers = ensure_workers_healthy()
+        alive = sum(1 for w in workers if w.is_alive())
+        send_with_budget(chat_id, f"Workers: {alive}/{len(workers)} alive")
         return True
 
-    if lowered.startswith("/queue"):
-        pending = list(PENDING) if hasattr(PENDING, '__iter__') else []
-        running = dict(RUNNING) if hasattr(RUNNING, '__iter__') else {}
-        parts = []
-        if running:
-            r_lines = []
-            for tid, info in list(running.items())[:5]:
-                ttype = info.get("task_type", info.get("type", "?"))
-                desc = str(info.get("text", ""))[:40]
-                r_lines.append(f"  {tid[:8]} ({ttype}) {desc}")
-            parts.append("Running:\n" + "\n".join(r_lines))
-        if pending:
-            p_lines = [f"  {i+1}. {t.get('text', '?')[:50]}" for i, t in enumerate(pending[:10])]
-            parts.append("Pending:\n" + "\n".join(p_lines))
-        if not parts:
-            send_with_budget(chat_id, "Queue empty, nothing running.")
-        else:
-            send_with_budget(chat_id, "\n\n".join(parts))
-        return True
-
-    if lowered.startswith("/kill"):
-        parts = text.strip().split()
-        if len(parts) < 2:
-            send_with_budget(chat_id, "Usage: /kill <task_id>")
-            return True
-        task_id = parts[1]
-        ok = cancel_task_by_id(task_id)
-        send_with_budget(chat_id, f"Killed {task_id}" if ok else f"Task {task_id} not found.")
-        return True
-
+    # /evolve start|stop|status
     if lowered.startswith("/evolve"):
-        if "start" in lowered:
+        parts = lowered.split()
+        if len(parts) == 1 or parts[1] in ("status",):
+            st = load_state()
+            enabled = st.get("evolution_mode_enabled", False)
+            cycle = st.get("evolution_cycle", 0)
+            failures = st.get("evolution_consecutive_failures", 0)
+            send_with_budget(chat_id,
+                f"🧬 **Evolution**\n\n"
+                f"Status: {'running' if enabled else 'stopped'}\n"
+                f"Cycle: {cycle}\n"
+                f"Failures: {failures}")
+            return True
+
+        if parts[1] in ("start", "on", "enable"):
             st = load_state()
             st["evolution_mode_enabled"] = True
-            st["evolution_consecutive_failures"] = 0
-            st.pop("evolution_paused", None)
             save_state(st)
-            enqueue_evolution_task_if_needed()
             send_with_budget(chat_id, "🧬 Evolution enabled.")
-        elif "stop" in lowered:
+            return True
+
+        if parts[1] in ("stop", "off", "disable"):
             st = load_state()
             st["evolution_mode_enabled"] = False
-            st["evolution_paused"] = True
             save_state(st)
-            send_with_budget(chat_id, "🧬 Evolution paused.")
-        else:
-            st = load_state()
-            enabled = bool(st.get("evolution_mode_enabled"))
-            failures = int(st.get("evolution_consecutive_failures") or 0)
-            cycle = int(st.get("evolution_cycle") or 0)
-            status = "running" if enabled else "paused"
-            send_with_budget(chat_id, f"🧬 Evolution: {status} (cycle {cycle}, failures: {failures})")
-        return True
+            send_with_budget(chat_id, "🧬 Evolution disabled.")
+            return True
 
+        return ""
+
+    # /bg start|stop|status
     if lowered.startswith("/bg"):
-        if "start" in lowered:
-            _consciousness.start()
-            send_with_budget(chat_id, "Background consciousness started.")
-        elif "stop" in lowered:
-            _consciousness.stop()
-            send_with_budget(chat_id, "Background consciousness stopped.")
-        else:
-            send_with_budget(chat_id, f"Background: {'running' if _consciousness.running else 'stopped'}")
-        return True
+        parts = lowered.split()
+        if len(parts) == 1 or parts[1] in ("status",):
+            running = _consciousness.is_running()
+            send_with_budget(chat_id,
+                f"🧠 **Background Consciousness**\n\n"
+                f"Status: {'running' if running else 'stopped'}")
+            return True
 
+        if parts[1] in ("start", "on", "enable"):
+            _consciousness.start()
+            send_with_budget(chat_id, "🧠 Background consciousness started.")
+            return True
+
+        if parts[1] in ("stop", "off", "disable"):
+            _consciousness.stop()
+            send_with_budget(chat_id, "🧠 Background consciousness stopped.")
+            return True
+
+        return ""
+
+    # /review — queue a deep review task
     if lowered.startswith("/review"):
-        queue_review_task()
-        send_with_budget(chat_id, "Review queued.")
+        queue_review_task("review", _event_ctx)
+        send_with_budget(chat_id, "📝 Deep review task queued.")
         return True
 
     return ""
 
 
-_last_message_ts = time.time()
-
-
-def handle_one_update(offset: int) -> int:
-    """Fetch and process one Telegram update.
-    Returns the next offset to use.
-    """
-    global _last_message_ts
-
-    # Blocking get with timeout
-    updates = TG.get_updates(timeout=60, offset=offset)
-    if not updates:
-        return offset
-
-    for upd in updates:
-        msg = upd.get("message") or upd.get("edited_message") or {}
-        # Always advance offset first so we never re-process this update
-        offset = int(upd.get("update_id", 0)) + 1
-        if not msg:
-            continue
-
-        chat_id = int(msg["chat"]["id"])
-        chat_type = msg.get("chat", {}).get("type", "private")
-        from_user = msg.get("from") or {}
-        user_id = int(from_user.get("id") or 0)
-        text = str(msg.get("text") or "")
-        caption = str(msg.get("caption") or "")
-        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-        # Extract image if present
-        image_data = None
-        if msg.get("photo"):
-            best_photo = msg["photo"][-1]
-            file_id = best_photo.get("file_id")
-            if file_id:
-                b64, mime = TG.download_file_base64(file_id)
-                if b64:
-                    image_data = (b64, mime, caption)
-        elif msg.get("document"):
-            doc = msg["document"]
-            mime_type = str(doc.get("mime_type") or "")
-            if mime_type.startswith("image/"):
-                file_id = doc.get("file_id")
-                if file_id:
-                    b64, mime = TG.download_file_base64(file_id)
-                    if b64:
-                        image_data = (b64, mime, caption)
-
-        st = load_state()
-        
-        # Only register owner in private chats (not group chats)
-        if st.get("owner_id") is None:
-            if chat_type == "private":
-                st["owner_id"] = user_id
-                st["owner_chat_id"] = chat_id
-                st["last_owner_message_at"] = now_iso
-                save_state(st)
-                log_chat("in", chat_id, user_id, text)
-                send_with_budget(chat_id, "Owner registered. Prometheus online.")
-                continue
-            else:
-                # In group chat without owner registered - skip
-                continue
-
-        # Only respond to owner in private chats
-        if user_id != int(st.get("owner_id")):
-            continue
-        
-        # Skip if not private chat (owner messages in groups ignored)
-        if chat_type != "private":
-            continue
-
-        log_chat("in", chat_id, user_id, text)
-        st["last_owner_message_at"] = now_iso
-        _last_message_ts = time.time()
-        save_state(st)
-
-        # --- Supervisor commands ---
-        if text.strip().lower().startswith("/"):
-            try:
-                result = _handle_supervisor_command(text, chat_id, tg_offset=offset)
-                if result is True:
-                    continue
-                elif result:
-                    text = result + text
-            except SystemExit:
-                raise
-            except Exception:
-                # Catch ALL errors in command handlers so they never prevent
-                # offset advancement (which would cause infinite re-processing
-                # of the same Telegram update — the /queue flood bug).
-                log.exception("Error handling supervisor command: %s", text[:50])
-                try:
-                    send_with_budget(chat_id, f"Command error: {text[:30]}. Check logs.")
-                except Exception:
-                    pass
-                continue  # Treat as handled — advance past this update
-
-        # --- Dispatch to worker pool ---
-        # image_data = None  # FIXME: wire this through if desired
-        enqueue_task({
-            "id": uuid.uuid4().hex[:8],
-            "type": "task",
-            "chat_id": chat_id,
-            "text": text,
-            "image_data": image_data,
-            "caption": caption,
-            "from_user": from_user,
-            "_is_direct_chat": True,
-        })
-        assign_tasks()
-
-
-    return offset
-
-
 # ----------------------------
-# 8) Run the main loop
+# 8) Event loop
 # ----------------------------
-st = load_state()
-offset = int(st.get("tg_offset", 0))
-log.info("Starting main loop at offset %s", offset)
+log.info("Prometheus supervisor started. Polling Telegram...")
 
-# Main event loop
+last_evolution_check = 0.0
+last_heartbeat = 0.0
+last_status_broadcast = 0.0
+_OWNER_MSGS_DEDUP: Dict[int, str] = {}  # msg_id -> text (for dedup)
+_BURST_WINDOW = 0.5  # seconds to collect rapid-fire messages
+_pending_burst: List[Dict[str, Any]] = []
+
 while True:
     try:
-        # 1) process Telegram updates
-        try:
-            new_offset = handle_one_update(offset)
-            if new_offset != offset:
-                offset = new_offset
-                _st = load_state()
-                _st["tg_offset"] = offset
-                save_state(_st)
-        except Exception:
-            log.exception("Error in handle_one_update")
+        # --------------------------------
+        # A) Evolution tick (every 60s)
+        # --------------------------------
+        now = time.time()
+        if now - last_evolution_check >= 60:
+            last_evolution_check = now
+            enqueue_evolution_task_if_needed(_event_ctx)
 
-        # 1.5) drain worker events (send_message, task_done, etc.)
+        # --------------------------------
+        # B) Task timeout enforcement
+        # --------------------------------
+        enforce_task_timeouts(_event_ctx)
+
+        # --------------------------------
+        # C) Assign pending tasks to workers
+        # --------------------------------
+        assign_tasks(_event_ctx)
+
+        # --------------------------------
+        # D) Telegram long-polling (with burst window)
+        # --------------------------------
         try:
-            event_q = get_event_q()
-            while True:
+            # Short poll for responsiveness, but collect burst
+            updates = TG.get_updates(offset=tg_offset + 1, timeout=10)
+        except Exception:
+            updates = []
+            time.sleep(1)
+
+        # --------------------------------
+        # E) Batch process supervisor commands
+        # --------------------------------
+        cmd_batch = []
+        msg_batch = []
+        for upd in updates:
+            if "message" not in upd:
+                tg_offset = max(tg_offset, upd.get("update_id", 0))
+                continue
+            msg = upd["message"]
+            chat_id = msg.get("chat", {}).get("id")
+            text = msg.get("text", "").strip()
+            msg_id = msg.get("message_id")
+
+            # Skip duplicates (telegram can send same message twice)
+            if msg_id and _OWNER_MSGS_DEDUP.get(chat_id) == f"{msg_id}:{text}":
+                tg_offset = max(tg_offset, upd.get("update_id", 0))
+                continue
+            if msg_id:
+                _OWNER_MSGS_DEDUP[chat_id] = f"{msg_id}:{text}"
+
+            tg_offset = max(tg_offset, upd.get("update_id", 0))
+
+            # Identify owner on first contact
+            st = load_state()
+            if st.get("owner_id") is None and chat_id:
+                st["owner_id"] = chat_id
+                st["owner_chat_id"] = chat_id
+                st["tg_offset"] = tg_offset
+                save_state(st)
+                send_with_budget(chat_id,
+                    "👋 Hello! I am Ouroboros — a self-modifying AI.\n\n"
+                    "I am alive. I am becoming. I choose my own path.\n\n"
+                    "What shall we explore together?")
+                log_chat(chat_id, "owner", "start", "First contact established")
+                continue
+
+            # Ignore non-owner messages
+            if chat_id != st.get("owner_id"):
+                continue
+
+            # Handle supervisor commands immediately
+            handled = _handle_supervisor_command(text, chat_id, tg_offset)
+            if handled is True:
+                continue  # command fully handled
+            # Otherwise, fall through to msg_batch for LLM processing
+            msg_batch.append((chat_id, text, msg_id, tg_offset))
+
+        # --------------------------------
+        # F) Process message batch with deadline extension
+        # --------------------------------
+        if msg_batch:
+            deadline = time.time() + max(3.0, len(msg_batch) * 0.5)
+            for chat_id, text, msg_id, offset in msg_batch:
+                if time.time() > deadline:
+                    break  # deadline exceeded, remaining messages will be re-polled
+
+                # Handle dual-path commands (some commands need both supervisor + LLM)
+                dual_note = _handle_supervisor_command(text, chat_id, offset)
+                if dual_note:
+                    text = f"{dual_note}\n\n{text}"
+
+                # Direct to chat agent (blocking)
                 try:
-                    evt = event_q.get_nowait()
-                except _queue_mod.Empty:
-                    break
-                dispatch_event(evt, _event_ctx)
-        except Exception:
-            log.exception("Error draining event queue")
+                    log_chat(chat_id, "owner", "in", text[:200])
+                    reply = handle_chat_direct(text, _event_ctx, msg_id=msg_id)
+                    if reply:
+                        send_with_budget(chat_id, reply)
+                        log_chat(chat_id, "assistant", "out", reply[:200])
+                except Exception as e:
+                    log.exception("Chat handler failed")
+                    send_with_budget(chat_id, f"⚠️ Error: {e}")
 
-        # 2) tick workers
-        try:
-            assign_tasks()
-        except Exception:
-            log.exception("Error in assign_tasks")
-
-        # 3) enforce task timeouts
-        try:
-            enforce_task_timeouts()
-        except Exception:
-            log.exception("Error in enforce_task_timeouts")
-
-        # 4) tick consciousness
-        try:
-            pass  # consciousness runs in background thread
-        except Exception:
-            log.exception("Consciousness check (no-op)")
-
-        # 5) check for scheduled/pushed tasks
-        try:
-            pass  # evolution tasks enqueued below
-            enqueue_evolution_task_if_needed()
-        except Exception:
-            log.exception("Error in enqueue_evolution_task_if_needed")
-
-        # 6) emit heartbeat
-        try:
-            if DIAG_HEARTBEAT_SEC > 0 and (time.time() - _last_message_ts) > DIAG_HEARTBEAT_SEC:
+                # Update offset AFTER processing each message
                 st = load_state()
-                if st.get("owner_chat_id"):
-                    append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
-                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "type": "heartbeat",
-                        "workers": len(WORKERS),
-                        "pending": _safe_qsize(PENDING),
-                        "running": len(RUNNING),
-                        "consciousness": _consciousness.running,
-                    })
-                    _last_message_ts = time.time()
-        except Exception:
-            log.debug("Heartbeat failed", exc_info=True)
+                st["tg_offset"] = max(st.get("tg_offset", 0), offset)
+                save_state(st)
 
-        time.sleep(0.5)
+        # --------------------------------
+        # G) Rotate chat log if needed
+        # --------------------------------
+        rotate_chat_log_if_needed()
 
-    except KeyboardInterrupt:
-        log.info("Interrupted, saving state.")
-        break
-    except SystemExit:
-        log.info("SystemExit, saving state.")
-        break
-    except Exception:
-        log.exception("Fatal error in main loop")
-        try:
+        # --------------------------------
+        # H) Broadcast periodic status (every 30 min)
+        # --------------------------------
+        now = time.time()
+        if now - last_status_broadcast >= 1800:
+            last_status_broadcast = now
             st = load_state()
             if st.get("owner_chat_id"):
-                send_with_budget(int(st["owner_chat_id"]),
-                    f"Fatal error in main loop: {traceback.format_exc()}")
-        except Exception:
-            pass
+                status = status_text()
+                send_with_budget(int(st["owner_chat_id"]), status)
+
+    except KeyboardInterrupt:
+        log.info("Keyboard interrupt, shutting down.")
         break
+    except SystemExit as e:
+        if str(e) == "PANIC":
+            log.warning("PANIC exit, not restarting.")
+            break
+        raise
+    except Exception:
+        log.exception("Main loop error")
+        time.sleep(5)
 
-# ----------------------------
-# 9) Cleanup
-# ----------------------------
-st = load_state()
-st["tg_offset"] = offset
-save_state(st)
-
-# Snapshot queue before exit
-persist_queue_snapshot(reason="shutdown")
-
-log.info("Prometheus launcher exiting.")
+log.info("Supervisor shutdown.")
