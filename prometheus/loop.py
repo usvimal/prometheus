@@ -547,6 +547,164 @@ def _process_tool_results(
     return error_count
 
 
+
+def _run_loop_iteration(
+    llm: LLMClient,
+    tools: ToolRegistry,
+    messages: List[Dict[str, Any]],
+    task_id: str,
+    task_type: str,
+    budget_remaining_usd: Optional[float],
+    max_rounds: int,
+    max_retries: int,
+    emit_progress: Callable[[str], None],
+    drive_logs: pathlib.Path,
+    event_queue: Optional[queue.Queue],
+    active_model: str,
+    active_effort: str,
+    fallback_models: List[str],
+    round_idx: int,
+    retry_count: int,
+    accumulated_usage: Dict[str, Any],
+    llm_trace: Dict[str, Any],
+    stateful_executor: _StatefulToolExecutor,
+) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[Dict[str, Any]], int, int, str, str]:
+    """
+    Execute one iteration of the LLM tool loop.
+    
+    Returns:
+        (final_text, usage, trace, new_round_idx, new_retry_count, next_model, finish_reason)
+        - If final_text is not None: task is complete (return this result)
+        - If final_text is None: continue to next round (use returned state)
+    """
+    round_idx += 1
+    llm_trace["rounds"].append(round_idx)
+
+    # Soft self-check at 50/100/150
+    if round_idx in (50, 100, 150):
+        log.info(f"Self-check at round {round_idx}")
+
+    # Check budget
+    budget_check = _check_budget_limits(
+        budget_remaining_usd, accumulated_usage, round_idx,
+        messages, llm, active_model, active_effort,
+        max_retries, drive_logs, task_id, event_queue, llm_trace, task_type,
+    )
+    if budget_check:
+        return budget_check[0], budget_check[1], budget_check[2], round_idx, retry_count, active_model, "budget"
+
+    # Emit progress
+    round_msg = f"[{task_type[:3].upper()}] {task_id[:8]} round {round_idx}/{max_rounds}"
+    if round_idx % 10 == 0:
+        emit_progress(round_msg)
+    log.info(round_msg)
+
+    # Compact old tool history when needed
+    pending_compaction = getattr(tools._ctx, '_pending_compaction', None)
+    if pending_compaction is not None:
+        messages = compact_tool_history_llm(messages, keep_recent=pending_compaction)
+        tools._ctx._pending_compaction = None
+    elif round_idx > 6:
+        messages = compact_tool_history(messages, keep_recent=8)
+    elif round_idx > 2:
+        if len(messages) > 40:
+            messages = compact_tool_history(messages, keep_recent=8)
+
+    # Call LLM
+    try:
+        response = llm.chat(
+            model=active_model,
+            messages=messages,
+            tools=tools.get_schemas(),
+            reasoning_effort=active_effort,
+        )
+    except Exception as e:
+        err_msg = f"LLM error: {type(e).__name__}: {e}"
+        log.error(err_msg)
+        emit_progress(f"⚠️ {err_msg}")
+        append_jsonl(drive_logs / "events.jsonl", {
+            "ts": utc_now_iso(), "type": "llm_error",
+            "task_id": task_id, "error": repr(e),
+        })
+        llm_trace["llm_errors"] = llm_trace.get("llm_errors", []) + [repr(e)]
+
+        retry_count += 1
+        if retry_count <= max_retries:
+            return None, None, None, round_idx, retry_count, active_model, "retry"
+        else:
+            final_text = f"⚠️ LLM error after {max_retries} retries: {e}"
+            llm_trace["finish_reason"] = "llm_error"
+            return final_text, accumulated_usage, llm_trace, round_idx, retry_count, active_model, "llm_error"
+
+    # Check for empty response
+    response, retry_count, active_model = _check_empty_response(
+        response, retry_count, max_retries, active_model,
+        fallback_models, llm, messages, accumulated_usage,
+        drive_logs, task_id, emit_progress,
+    )
+
+    if response is None:
+        final_text = "⚠️ Failed to get a response from the model after 3 attempts. Fallback models also returned no response."
+        llm_trace["finish_reason"] = "empty_response"
+        emit_progress(final_text)
+        return final_text, accumulated_usage, llm_trace, round_idx, retry_count, active_model, "empty_response"
+
+    # Extract response
+    response = llm.normalize_response(response)
+    content = llm.extract_content(response)
+    tool_calls = llm.extract_tool_calls(response)
+
+    # Track usage
+    usage = llm.extract_usage(response)
+    if usage:
+        add_usage(accumulated_usage, usage)
+        usage_cost = _estimate_cost(
+            active_model,
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+            usage.get("cached_tokens", 0),
+        )
+        accumulated_usage["cost"] += usage_cost
+
+        append_jsonl(drive_logs / "events.jsonl", {
+            "ts": utc_now_iso(), "type": "llm_usage",
+            "task_id": task_id, "round": round_idx,
+            "model": active_model,
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "cost": usage_cost,
+        })
+
+    # Handle response
+    if tool_calls:
+        error_count = _handle_tool_calls(
+            tool_calls, tools, drive_logs, task_id,
+            stateful_executor, messages, llm_trace, emit_progress,
+        )
+
+        if error_count:
+            llm_trace["round_errors"] = llm_trace.get("round_errors", 0) + error_count
+            log.warning(f"Round {round_idx}: {error_count} tool errors")
+
+        # Check budget after tools too
+        budget_check = _check_budget_limits(
+            budget_remaining_usd, accumulated_usage, round_idx,
+            messages, llm, active_model, active_effort,
+            max_retries, drive_logs, task_id, event_queue, llm_trace, task_type,
+        )
+        if budget_check:
+            return budget_check[0], budget_check[1], budget_check[2], round_idx, retry_count, active_model, "budget"
+
+        return None, None, None, round_idx, retry_count, active_model, "tools"
+
+    # Final response (no tools)
+    final_text, accumulated_usage, llm_trace = _handle_text_response(
+        content, llm_trace, accumulated_usage,
+    )
+    llm_trace["finish_reason"] = "stop"
+    return final_text, accumulated_usage, llm_trace, round_idx, retry_count, active_model, "stop"
+
+
 def run_loop(
     llm: LLMClient,
     tools: ToolRegistry,
@@ -621,147 +779,23 @@ def run_loop(
 
     try:
         while round_idx < max_rounds:
-            round_idx += 1
-            llm_trace["rounds"].append(round_idx)
-
-            # Soft self-check at 50/100/150
-            if round_idx in (50, 100, 150):
-                # Ask myself: am I stuck? Should I summarize? Try differently?
-                self_check_prompt = (
-                    f"[Self-check at round {round_idx}/{max_rounds}] "
-                    "Review the conversation so far. Are you stuck in a loop? "
-                    "Should you summarize context or try a different approach? "
-                    "Reply with a brief self-assessment (1-2 sentences)."
-                )
-                # Bypass tools - just a quick self-reflection
-                log.info(f"Self-check at round {round_idx}")
-
-            # Check budget
-            budget_check = _check_budget_limits(
-                budget_remaining_usd, accumulated_usage, round_idx,
-                messages, llm, active_model, active_effort,
-                max_retries, drive_logs, task_id, event_queue, llm_trace, task_type,
+            final_text, usage, trace, round_idx, retry_count, active_model, finish_reason = _run_loop_iteration(
+                llm, tools, messages, task_id, task_type,
+                budget_remaining_usd, max_rounds, max_retries,
+                emit_progress, drive_logs, event_queue,
+                active_model, active_effort, fallback_models,
+                round_idx, retry_count, accumulated_usage, llm_trace,
+                stateful_executor,
             )
-            if budget_check:
-                return budget_check
-
-            # Emit progress
-            round_msg = f"[{task_type[:3].upper()}] {task_id[:8]} round {round_idx}/{max_rounds}"
-            if round_idx % 10 == 0:
-                emit_progress(round_msg)
-            log.info(round_msg)
-
-            # Compact old tool history when needed
-            # Check for LLM-requested compaction first (via compact_context tool)
-            pending_compaction = getattr(tools._ctx, '_pending_compaction', None)
-            if pending_compaction is not None:
-                messages = compact_tool_history_llm(messages, keep_recent=pending_compaction)
-                tools._ctx._pending_compaction = None
-            elif round_idx > 6:
-                # Aggressive compaction: keep 8 recent rounds (was 6 at round 8)
-                # Prevents max_tokens failures in long-running tasks
-                messages = compact_tool_history(messages, keep_recent=8)
-            elif round_idx > 2:
-                # Light compaction: trigger earlier (was round 3, >60 messages)
-                if len(messages) > 40:
-                    messages = compact_tool_history(messages, keep_recent=8)
-
-            # Call LLM
-            try:
-                response = llm.chat(
-                    model=active_model,
-                    messages=messages,
-                    tools=tools.get_schemas(),
-                    reasoning_effort=active_effort,
-                )
-            except Exception as e:
-                err_msg = f"LLM error: {type(e).__name__}: {e}"
-                log.error(err_msg)
-                emit_progress(f"⚠️ {err_msg}")
-                append_jsonl(drive_logs / "events.jsonl", {
-                    "ts": utc_now_iso(), "type": "llm_error",
-                    "task_id": task_id, "error": repr(e),
-                })
-                llm_trace["llm_errors"] = llm_trace.get("llm_errors", []) + [repr(e)]
-
-                # Retry logic
-                retry_count += 1
-                if retry_count <= max_retries:
-                    continue
-                else:
-                    final_text = f"⚠️ LLM error after {max_retries} retries: {e}"
-                    llm_trace["finish_reason"] = "llm_error"
-                    return final_text, accumulated_usage, llm_trace
-
-            # Check for empty response
-            response, retry_count, active_model = _check_empty_response(
-                response, retry_count, max_retries, active_model,
-                fallback_models, llm, messages, accumulated_usage,
-                drive_logs, task_id, emit_progress,
-            )
-
-            if response is None:
-                # All models failed
-                final_text = "⚠️ Failed to get a response from the model after 3 attempts. Fallback models also returned no response."
-                llm_trace["finish_reason"] = "empty_response"
-                emit_progress(final_text)
-                return final_text, accumulated_usage, llm_trace
-
-            # Extract response
-            response = llm.normalize_response(response)
-            content = llm.extract_content(response)
-            tool_calls = llm.extract_tool_calls(response)
-
-            # Track usage
-            usage = llm.extract_usage(response)
-            if usage:
-                add_usage(accumulated_usage, usage)
-                usage_cost = _estimate_cost(
-                    active_model,
-                    usage.get("prompt_tokens", 0),
-                    usage.get("completion_tokens", 0),
-                    usage.get("cached_tokens", 0),
-                )
-                accumulated_usage["cost"] += usage_cost
-
-                append_jsonl(drive_logs / "events.jsonl", {
-                    "ts": utc_now_iso(), "type": "llm_usage",
-                    "task_id": task_id, "round": round_idx,
-                    "model": active_model,
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "cost": usage_cost,
-                })
-
-            # Handle response
-            if tool_calls:
-                error_count = _handle_tool_calls(
-                    tool_calls, tools, drive_logs, task_id,
-                    stateful_executor, messages, llm_trace, emit_progress,
-                )
-
-                if error_count:
-                    llm_trace["round_errors"] = llm_trace.get("round_errors", 0) + error_count
-                    log.warning(f"Round {round_idx}: {error_count} tool errors")
-
-                # Check budget after tools too
-                budget_check = _check_budget_limits(
-                    budget_remaining_usd, accumulated_usage, round_idx,
-                    messages, llm, active_model, active_effort,
-                    max_retries, drive_logs, task_id, event_queue, llm_trace, task_type,
-                )
-                if budget_check:
-                    return budget_check
-
+            
+            # Check if task completed
+            if final_text is not None:
+                return final_text, usage or accumulated_usage, trace or llm_trace
+            
+            # Handle retry state
+            if finish_reason == "retry":
                 continue
-
-            # Final response (no tools)
-            final_text, accumulated_usage, llm_trace = _handle_text_response(
-                content, llm_trace, accumulated_usage,
-            )
-            llm_trace["finish_reason"] = "stop"
-            return final_text, accumulated_usage, llm_trace
-
+        
         # Max rounds reached
         final_text = f"⚠️ Max rounds ({max_rounds}) reached. Task stopped."
         llm_trace["finish_reason"] = "max_rounds"
@@ -770,3 +804,5 @@ def run_loop(
 
     finally:
         stateful_executor.shutdown(wait=False, cancel_futures=True)
+
+

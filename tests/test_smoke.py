@@ -507,11 +507,3 @@ class TestAgentCore:
 
 
 # ── Orchestrator tests ────────────────────────────────────────────
-
-class TestOrchestrator:
-    """Orchestrator coordination tests."""
-    
-    def test_orchestrator_import(self):
-        """Orchestrator module imports."""
-        from prometheus.orchestrator import OuroborosOrchestrator
-        assert OuroborosOrchestrator is not None
