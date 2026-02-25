@@ -31,7 +31,7 @@ from prometheus.tools import ToolRegistry
 from prometheus.tools.registry import ToolContext
 from prometheus.memory import Memory
 from prometheus.context import build_llm_messages
-from prometheus.loop import run_llm_loop
+from prometheus.loop import run_loop as run_llm_loop
 
 
 # ---------------------------------------------------------------------------

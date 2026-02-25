@@ -221,7 +221,7 @@ Single branch: `main`. All agent commits go here.
 
 ## Changelog
 
-### v6.3.2 -- Critical Bugfixes + LLM-First Dedup
+### v6.3.3 -- Critical Bugfixes + LLM-First Dedup
 - **Fix: worker_id==0 hard-timeout bug** -- `int(x or -1)` treated worker 0 as -1, preventing terminate on timeout and causing double task execution. Replaced all `x or default` patterns with None-safe checks.
 - **Fix: double budget accounting** -- per-task aggregate `llm_usage` event removed; per-round events already track correctly. Eliminates ~2x budget drift.
 - **Fix: compact_context tool** -- handler had wrong signature (missing ctx param), making it always error. Now works correctly.
