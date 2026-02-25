@@ -628,7 +628,12 @@ while True:
     try:
         # 1) process Telegram updates
         try:
-            offset = handle_one_update(offset)
+            new_offset = handle_one_update(offset)
+            if new_offset != offset:
+                offset = new_offset
+                _st = load_state()
+                _st["tg_offset"] = offset
+                save_state(_st)
         except Exception:
             log.exception("Error in handle_one_update")
 
