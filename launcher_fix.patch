@@ -1,0 +1,12 @@
+# ============================
+# NOTE: This is a patch file to fix launcher.py
+# Apply manually or use patch tool
+# ============================
+
+# Change 1: After line "chat_id = int(msg["chat"]["id"])" add:
+        chat_type = msg.get("chat", {}).get("type", "private")
+
+# Change 2: After "if user_id != int(st.get("owner_id")): continue" add:
+        # Only respond in private chats
+        if chat_type != "private":
+            continue
