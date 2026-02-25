@@ -90,7 +90,7 @@ EXPECTED_TOOLS = [
     "git_status", "git_diff",
     "run_shell", "claude_code_edit",
     "browse_page", "browser_action",
-    "web_search",
+    "browser_search",
     # Semantic Memory tools
     "memory_store", "memory_recall", "memory_list", "memory_delete",
     # Communication

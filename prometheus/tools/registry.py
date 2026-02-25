@@ -83,7 +83,7 @@ CORE_TOOL_NAMES = {
     "git_status", "git_diff",
     "schedule_task", "wait_for_task", "get_task_result",
     "update_scratchpad", "update_identity",
-    "chat_history", "web_search",
+    "chat_history", "browser_search",
     "send_owner_message", "switch_model",
     "request_restart", "promote_to_stable",
     "knowledge_read", "knowledge_write",
