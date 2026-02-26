@@ -1,6 +1,6 @@
 [project]
 name = "prometheus"
-version = "6.3.8"
+version = "6.3.9"
 description = "Self-modifying AI agent"
 requires-python = ">=3.10"
 
