@@ -330,6 +330,16 @@ def build_llm_messages(
         env.repo_path("prompts/SYSTEM.md"),
         fallback="You are Prometheus. Your base prompt could not be loaded."
     )
+
+    # Conditional prompt sections — saves ~950 tokens on non-evolution/consciousness tasks
+    if task_type in ("evolution", "review"):
+        evo_prompt = _safe_read(env.repo_path("prompts/EVOLUTION.md"), fallback="")
+        if evo_prompt:
+            base_prompt += "\n\n" + evo_prompt
+    if task_type == "consciousness":
+        bg_prompt = _safe_read(env.repo_path("prompts/CONSCIOUSNESS.md"), fallback="")
+        if bg_prompt:
+            base_prompt += "\n\n" + bg_prompt
     bible_md = _safe_read(env.repo_path("BIBLE.md"))
     readme_md = _safe_read(env.repo_path("README.md"))
     state_json = _safe_read(env.drive_path("state/state.json"), fallback="{}")
