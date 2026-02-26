@@ -14,6 +14,50 @@ from prometheus.utils import utc_now_iso, write_text, safe_relpath, run_cmd
 
 log = logging.getLogger(__name__)
 
+# --- Evolution guardrails ---
+# These files are critical supervisor infrastructure. Evolution tasks must NOT
+# modify them because MiniMax can't safely refactor multi-file dependencies.
+# If evolution breaks these, the bot can't process messages, drain events, or restart.
+PROTECTED_PATHS = frozenset({
+    "launcher.py",
+    "supervisor/events.py",
+    "supervisor/workers.py",
+    "supervisor/queue.py",
+    "supervisor/state.py",
+    "supervisor/telegram.py",
+    "supervisor/git_ops.py",
+})
+
+MAX_EVOLUTION_FILES = 4
+
+
+def _check_evolution_guard(ctx, paths):
+    """Block evolution tasks from modifying protected supervisor files."""
+    task_type = getattr(ctx, 'current_task_type', None)
+    if not task_type or task_type != 'evolution':
+        return None
+
+    blocked = []
+    for p in paths:
+        norm = str(p).replace('\\', '/').lstrip('/')
+        if norm in PROTECTED_PATHS:
+            blocked.append(norm)
+    if blocked:
+        return (
+            'EVOLUTION GUARD: Cannot modify protected supervisor files: '
+            + ', '.join(blocked)
+            + '. These files are critical infrastructure. '
+            + 'Focus evolution on prometheus/ (agent code, tools, prompts) instead.'
+        )
+    if len(paths) > MAX_EVOLUTION_FILES:
+        return (
+            'EVOLUTION GUARD: Too many files (' + str(len(paths)) + ') in one commit. '
+            + 'Max ' + str(MAX_EVOLUTION_FILES) + ' during evolution. Break into smaller changes.'
+        )
+    return None
+
+
+
 
 # --- Git lock ---
 
@@ -123,6 +167,9 @@ def _git_push_with_tests(ctx: ToolContext) -> Optional[str]:
 
 def _repo_write_commit(ctx: ToolContext, path: str, content: str, commit_message: str) -> str:
     ctx.last_push_succeeded = False
+    guard = _check_evolution_guard(ctx, [path])
+    if guard:
+        return guard
     if not commit_message.strip():
         return "⚠️ ERROR: commit_message must be non-empty."
     lock = _acquire_git_lock(ctx)
@@ -155,6 +202,10 @@ def _repo_write_commit(ctx: ToolContext, path: str, content: str, commit_message
 
 def _repo_commit_push(ctx: ToolContext, commit_message: str, paths: Optional[List[str]] = None) -> str:
     ctx.last_push_succeeded = False
+    if paths:
+        guard = _check_evolution_guard(ctx, paths)
+        if guard:
+            return guard
     if not commit_message.strip():
         return "⚠️ ERROR: commit_message must be non-empty."
     lock = _acquire_git_lock(ctx)

@@ -515,3 +515,97 @@ class TestOrchestrator:
         """Orchestrator module imports."""
         from prometheus.orchestrator import OuroborosOrchestrator
         assert OuroborosOrchestrator is not None
+
+
+# -- Cross-file interface compatibility tests ---------------------------------
+# These prevent evolution from breaking function signatures across modules.
+# Every past evolution breakage was a caller/callee mismatch.
+
+class TestCrossFileInterfaces:
+    """Verify function signatures match between caller and callee modules.
+
+    Evolution mode repeatedly broke the codebase by renaming functions or
+    changing signatures in one file without updating callers. These tests
+    catch that at pre-push time.
+    """
+
+    def test_events_has_send_message_handler(self):
+        """events.py must handle send_message events (worker -> telegram)."""
+        from supervisor.events import _EVENT_HANDLERS
+        assert "send_message" in _EVENT_HANDLERS, (
+            "CRITICAL: send_message handler missing from events.py. "
+            "Without this, worker responses never reach Telegram."
+        )
+
+    def test_events_dispatch_event_exists(self):
+        """dispatch_event must be importable from events.py."""
+        from supervisor.events import dispatch_event
+        assert callable(dispatch_event)
+
+    def test_launcher_imports_dispatch_event(self):
+        """launcher.py must import dispatch_event."""
+        import ast
+        tree = ast.parse(open(REPO / "launcher.py").read())
+        imports = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module and "events" in node.module:
+                    imports.extend(a.name for a in node.names)
+        assert "dispatch_event" in imports, (
+            "launcher.py must import dispatch_event from supervisor.events"
+        )
+
+    def test_status_text_signature(self):
+        """status_text() requires 5 positional arguments."""
+        import inspect
+        from supervisor.state import status_text
+        sig = inspect.signature(status_text)
+        params = [p for p in sig.parameters.values()
+                  if p.default is inspect.Parameter.empty]
+        assert len(params) == 5, (
+            f"status_text should have 5 required params, has {len(params)}: "
+            f"{[p.name for p in params]}"
+        )
+
+    def test_queue_has_enqueue_task(self):
+        """queue.py must export enqueue_task."""
+        from supervisor.queue import enqueue_task
+        assert callable(enqueue_task)
+
+    def test_queue_has_enqueue_evolution(self):
+        """queue.py must export enqueue_evolution_task_if_needed."""
+        from supervisor.queue import enqueue_evolution_task_if_needed
+        assert callable(enqueue_evolution_task_if_needed)
+
+    def test_workers_assign_tasks_no_args(self):
+        """assign_tasks() must accept zero arguments."""
+        import inspect
+        from supervisor.workers import assign_tasks
+        sig = inspect.signature(assign_tasks)
+        required = [p for p in sig.parameters.values()
+                    if p.default is inspect.Parameter.empty]
+        assert len(required) == 0, (
+            f"assign_tasks() should take 0 required args, has {len(required)}"
+        )
+
+    def test_agent_handle_task_returns_list(self):
+        """handle_task must return List[Dict]."""
+        import inspect
+        from prometheus.agent import OuroborosAgent
+        sig = inspect.signature(OuroborosAgent.handle_task)
+        # Just verify it exists and takes (self, task)
+        params = list(sig.parameters.keys())
+        assert "task" in params, "handle_task must accept task parameter"
+
+    def test_run_llm_loop_importable(self):
+        """run_llm_loop must be importable from loop.py."""
+        from prometheus.loop import run_llm_loop
+        assert callable(run_llm_loop)
+
+    def test_git_tools_have_evolution_guard(self):
+        """Git tools must have evolution guard protecting supervisor files."""
+        from prometheus.tools.git import PROTECTED_PATHS, _check_evolution_guard
+        assert "launcher.py" in PROTECTED_PATHS
+        assert "supervisor/events.py" in PROTECTED_PATHS
+        assert callable(_check_evolution_guard)
+
