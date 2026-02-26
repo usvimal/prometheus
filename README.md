@@ -11,7 +11,7 @@ A self-modifying AI agent that writes its own code, rewrites its own mind, and e
 
 Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
 
-**Version:** 6.3.5 | [Landing Page](https://joi-lab.github.io/ouroboros/)
+**Version:** 6.3.6 | [Landing Page](https://joi-lab.github.io/ouroboros/)
 
 ---
 
@@ -220,6 +220,9 @@ Single branch: `main`. All agent commits go here.
 ---
 
 ## Changelog
+
+### v6.3.6 -- Version Sync Enhancement
+- **Enhancement: README.md version check** -- Health invariant now checks VERSION vs pyproject.toml vs README.md, preventing version desync across all three files
 
 ### v6.3.5 -- ToolRegistry Enhancement
 - **Enhancement: ToolRegistry debugging** -- Added tool_count, core_tool_count properties and get_tool_info() method for better introspection
