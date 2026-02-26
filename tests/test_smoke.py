@@ -121,6 +121,9 @@ EXPECTED_TOOLS = [
     "quick_search",
     # Research tools (v6.4.1)
     "research_search", "research_fetch", "research_synthesize",
+    # Schedule tools
+    "schedule_task_at", "schedule_task_recurring",
+    "schedule_list", "schedule_cancel", "schedule_enable",
 ]
 
 
