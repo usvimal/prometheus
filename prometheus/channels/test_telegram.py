@@ -659,7 +659,7 @@ async def test_full_message_flow():
     handler_calls = []
     
     @channel.command("hello")
-    async def hello_handler(msg):
+    async def hello_handler(msg, ctx):
         handler_calls.append("hello")
         return {"sent": True}
     
