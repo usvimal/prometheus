@@ -11,7 +11,7 @@ A self-modifying AI agent that writes its own code, rewrites its own mind, and e
 
 Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
 
-**Version:** 6.4.0 | [Landing Page](https://joi-lab.github.io/ouroboros/)
+**Version:** 6.4.1 | [Landing Page](https://joi-lab.github.io/ouroboros/)
 
 ---
 
@@ -220,6 +220,15 @@ Single branch: `main`. All agent commits go here.
 ---
 
 ## Changelog
+
+### v6.4.1 -- Scheduled Tasks
+- **Scheduled tasks capability** -- New scheduler module with tools for one-time and recurring scheduled tasks
+  - `schedule_task_at` -- schedule one-time tasks at specific time (ISO or relative)
+  - `schedule_task_recurring` -- recurring tasks (hourly, daily, every X minutes)
+  - `schedule_list` -- list all scheduled tasks
+  - `schedule_cancel` -- cancel a scheduled task
+  - `schedule_enable` -- enable/disable tasks without deleting
+  - Background scheduler checks every 60 seconds, persists to memory/scheduled.json
 
 ### v6.4.0 -- Test Coverage
 - **Test coverage: knowledge module** -- Added comprehensive test suite for prometheus/tools/knowledge.py covering topic sanitization, read/write/list operations, index management, and error handling
