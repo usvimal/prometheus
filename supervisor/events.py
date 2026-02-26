@@ -67,10 +67,30 @@ def _handle_send_message(evt, ctx):
 
 @on_event("task_received")
 def _handle_task_received(evt: Dict[str, Any], ctx: Any) -> None:
-    """Log task receipt."""
+    """Log task receipt. For evolution tasks, save git HEAD for restart decision."""
     task = evt.get("task", {})
     task_type = task.get("type", "unknown")
     task_id = task.get("id", "?")
+
+    # Save git HEAD for evolution tasks so we can detect if commits were made
+    if task_type == "evolution":
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True,
+                cwd=str(ctx.DRIVE_ROOT / ".." / "repo"),
+                timeout=5,
+            )
+            if result.returncode == 0:
+                sha = result.stdout.strip()
+                st = ctx.load_state()
+                st["_evolution_start_sha"] = sha
+                ctx.save_state(st)
+                logger.debug("Saved evolution start SHA: %s", sha[:8])
+        except Exception:
+            logger.debug("Failed to save evolution start SHA", exc_info=True)
+
     ctx.append_jsonl(
         ctx.DRIVE_ROOT / "logs" / "supervisor.jsonl",
         {
@@ -129,23 +149,59 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
             logger.info(f"Evolution task {task_id} succeeded (rounds={rounds}), resetting failure counter")
             ctx.save_state(st)
             
-            # Auto-restart after successful evolution to apply code changes
-            logger.info(f"Evolution task {task_id} succeeded - requesting restart to apply changes")
-            ctx.pending_events.append({
-                "type": "restart_request",
-                "reason": f"Auto-restart after successful evolution (task {task_id})",
-                "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            })
-            
-            # Notify owner
-            if st.get("owner_chat_id"):
-                try:
-                    ctx.send_with_budget(
-                        int(st["owner_chat_id"]),
-                        "🧬 Evolution completed successfully! Auto-restarting to apply changes...",
-                    )
-                except Exception as e:
-                    logger.debug(f"Failed to send evolution success notification: {e}")
+            # Only restart if evolution actually committed code changes
+            # Compare current git HEAD with SHA saved at task start
+            needs_restart = False
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    capture_output=True, text=True,
+                    cwd=str(ctx.DRIVE_ROOT / ".." / "repo"),
+                    timeout=5,
+                )
+                current_sha = result.stdout.strip() if result.returncode == 0 else ""
+                start_sha = st.get("_evolution_start_sha", "")
+                if current_sha and start_sha and current_sha != start_sha:
+                    needs_restart = True
+                    logger.info(f"Evolution made commits: {start_sha[:8]} -> {current_sha[:8]}")
+                elif not start_sha:
+                    needs_restart = True
+                    logger.warning("No evolution start SHA found, restarting to be safe")
+                else:
+                    logger.info(f"Evolution made no commits (HEAD still {current_sha[:8]}), skipping restart")
+            except Exception:
+                needs_restart = True
+                logger.debug("Failed to check git HEAD for restart decision", exc_info=True)
+
+            # Clean up saved SHA
+            st.pop("_evolution_start_sha", None)
+            ctx.save_state(st)
+
+            if needs_restart:
+                logger.info(f"Evolution task {task_id} succeeded with commits - requesting restart")
+                ctx.pending_events.append({
+                    "type": "restart_request",
+                    "reason": f"Auto-restart after successful evolution (task {task_id})",
+                    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                })
+                if st.get("owner_chat_id"):
+                    try:
+                        ctx.send_with_budget(
+                            int(st["owner_chat_id"]),
+                            "🧬 Evolution completed with code changes! Restarting to apply...",
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to send evolution notification: {e}")
+            else:
+                if st.get("owner_chat_id"):
+                    try:
+                        ctx.send_with_budget(
+                            int(st["owner_chat_id"]),
+                            "🧬 Evolution completed (analysis only, no code changes). No restart needed.",
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to send evolution notification: {e}")
         else:
             # Likely failure (no rounds = immediate failure)
             failures = int(st.get("evolution_consecutive_failures") or 0) + 1
