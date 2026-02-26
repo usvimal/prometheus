@@ -419,13 +419,11 @@ class OuroborosAgent:
                     llm=self.llm,
                     drive_logs=drive_logs,
                     emit_progress=self._emit_progress,
-                    incoming_messages=self._incoming_messages,
                     task_type=task_type_str,
                     task_id=str(task.get("id") or ""),
                     budget_remaining_usd=budget_remaining,
                     event_queue=self._event_queue,
-                    initial_effort=initial_effort,
-                    drive_root=self.env.drive_root,
+                    active_effort=initial_effort,
                 )
             except Exception as e:
                 tb = traceback.format_exc()

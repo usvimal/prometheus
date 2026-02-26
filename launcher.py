@@ -613,7 +613,17 @@ while True:
                 continue
 
             # Handle supervisor commands immediately
-            handled = _handle_supervisor_command(text, chat_id, tg_offset)
+            try:
+                handled = _handle_supervisor_command(text, chat_id, tg_offset)
+            except SystemExit:
+                raise
+            except Exception:
+                log.exception("Error in supervisor command: %s", text[:50])
+                try:
+                    send_with_budget(chat_id, f"⚠️ Command error: {text[:30]}")
+                except Exception:
+                    pass
+                handled = True  # treat as handled to advance past this update
             if handled is True:
                 continue  # command fully handled
             # Otherwise, fall through to msg_batch for LLM processing
