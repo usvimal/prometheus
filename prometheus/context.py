@@ -19,6 +19,7 @@ from prometheus.utils import (
     utc_now_iso, read_text, clip_text, estimate_tokens, get_git_info,
 )
 from prometheus.memory import Memory
+from prometheus.tools.skills import scan_skills, parse_skill_file
 
 log = logging.getLogger(__name__)
 
@@ -342,6 +343,47 @@ def _build_health_invariants(env: Any) -> str:
     return "## Health Invariants\n\n" + "\n".join(f"- {c}" for c in checks)
 
 
+def _build_skill_sections(env: Any) -> str:
+    """Build skill summary + auto-invoke skill bodies for LLM prompt.
+
+    Two-stage approach:
+    1. Compact XML summary of all enabled skills (always included)
+    2. Full body text for auto_invoke skills (max 3, capped at 2000 chars each)
+    """
+    try:
+        skills = scan_skills(env.drive_root)
+    except Exception:
+        log.debug("Failed to scan skills", exc_info=True)
+        return ""
+
+    enabled_skills = [s for s in skills if s.get("enabled")]
+    if not enabled_skills:
+        return ""
+
+    parts = []
+
+    # Stage 1: Compact XML summary
+    summary_lines = ["<available_skills>"]
+    for s in enabled_skills:
+        auto = "true" if s.get("auto_invoke") else "false"
+        desc = (s.get("description") or "No description")[:120]
+        name = s.get("name") or s.get("dir_name", "?")
+        summary_lines.append(f'  <skill name="{name}" auto="{auto}">{desc}</skill>')
+    summary_lines.append("</available_skills>")
+    parts.append("## Skills\n\n" + "\n".join(summary_lines))
+
+    # Stage 2: Full body for auto-invoke skills (max 3, 2000 chars each)
+    auto_skills = [s for s in enabled_skills if s.get("auto_invoke")]
+    for s in auto_skills[:3]:
+        body = s.get("body", "").strip()
+        if body:
+            name = s.get("name") or s.get("dir_name", "?")
+            clipped = clip_text(body, 2000)
+            parts.append(f"### Skill: {name}\n\n{clipped}")
+
+    return "\n\n".join(parts)
+
+
 def build_llm_messages(
     env: Any,
     memory: Memory,
@@ -429,6 +471,11 @@ def build_llm_messages(
     # These change ~once per task, not per round
     semi_stable_parts = []
     semi_stable_parts.extend(_build_memory_sections(memory))
+
+    # Skills: injected into semi-stable block (changes infrequently)
+    skill_section = _build_skill_sections(env)
+    if skill_section:
+        semi_stable_parts.append(skill_section)
 
     kb_index_path = env.drive_path("memory/knowledge/_index.md")
     if kb_index_path.exists():

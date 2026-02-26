@@ -388,6 +388,228 @@ async def post_groups(request: Request):
     raise HTTPException(400, f"Unknown action: {action}")
 
 
+# ----- Skills Management API -----
+
+def _skills_dir() -> pathlib.Path:
+    return DATA_DIR / "skills"
+
+
+def _scan_skills_api() -> List[Dict[str, Any]]:
+    """Scan all skills and return parsed metadata (dashboard-side, no ToolContext needed)."""
+    skills_root = _skills_dir()
+    if not skills_root.exists():
+        return []
+    results = []
+    for entry in sorted(skills_root.iterdir()):
+        if not entry.is_dir():
+            continue
+        skill_file = entry / "SKILL.md"
+        if not skill_file.exists():
+            continue
+        try:
+            text = skill_file.read_text(encoding="utf-8")
+            parsed = _parse_skill_frontmatter(text)
+            if not parsed["name"]:
+                parsed["name"] = entry.name
+            parsed["dir_name"] = entry.name
+            results.append(parsed)
+        except Exception:
+            continue
+    return results
+
+
+def _parse_skill_frontmatter(text: str) -> Dict[str, Any]:
+    """Parse SKILL.md: extract YAML frontmatter + markdown body."""
+    result = {
+        "name": "", "description": "", "enabled": True,
+        "auto_invoke": True, "version": 1, "body": text,
+    }
+    stripped = text.strip()
+    if not stripped.startswith("---"):
+        return result
+    end_idx = stripped.find("---", 3)
+    if end_idx == -1:
+        return result
+    frontmatter = stripped[3:end_idx].strip()
+    body = stripped[end_idx + 3:].strip()
+    result["body"] = body
+    for line in frontmatter.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip().lower()
+        val = val.strip()
+        if (val.startswith('"') and val.endswith('"')) or \
+           (val.startswith("'") and val.endswith("'")):
+            val = val[1:-1]
+        if key == "name":
+            result["name"] = val
+        elif key == "description":
+            result["description"] = val
+        elif key == "enabled":
+            result["enabled"] = val.lower() in ("true", "yes", "1", "on")
+        elif key in ("auto_invoke", "auto-invoke", "autoinvoke"):
+            result["auto_invoke"] = val.lower() in ("true", "yes", "1", "on")
+        elif key == "version":
+            try:
+                result["version"] = int(val)
+            except ValueError:
+                pass
+    return result
+
+
+import re as _re
+_SKILL_NAME_RE = _re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,58}[a-zA-Z0-9]$|^[a-zA-Z0-9]$')
+_SKILL_RESERVED = frozenset({"_index", "con", "prn", "aux", "nul", "__pycache__"})
+
+
+def _validate_skill_name(name: str) -> str:
+    """Validate and sanitize skill name. Raises HTTPException on bad input."""
+    if not name or not isinstance(name, str):
+        raise HTTPException(400, "Skill name must be a non-empty string")
+    name = name.strip().lower()
+    if '/' in name or '\\' in name or '..' in name:
+        raise HTTPException(400, f"Invalid characters in skill name: {name}")
+    if not _SKILL_NAME_RE.match(name):
+        raise HTTPException(400, f"Invalid skill name: {name}. Use lowercase alphanumeric, hyphens, underscores (2-60 chars).")
+    if name in _SKILL_RESERVED:
+        raise HTTPException(400, f"Reserved skill name: {name}")
+    return name
+
+
+def _build_skill_frontmatter(name: str, description: str,
+                              enabled: bool = True, auto_invoke: bool = True,
+                              version: int = 1) -> str:
+    return (
+        f"---\n"
+        f"name: {name}\n"
+        f"description: {description}\n"
+        f"enabled: {'true' if enabled else 'false'}\n"
+        f"auto_invoke: {'true' if auto_invoke else 'false'}\n"
+        f"version: {version}\n"
+        f"---\n"
+    )
+
+
+@app.get("/api/skills")
+def get_skills():
+    """List all skills with parsed metadata."""
+    skills = _scan_skills_api()
+    return {"skills": [
+        {
+            "name": s["name"],
+            "dir_name": s["dir_name"],
+            "description": s["description"],
+            "enabled": s["enabled"],
+            "auto_invoke": s["auto_invoke"],
+            "version": s["version"],
+        }
+        for s in skills
+    ]}
+
+
+@app.get("/api/skills/{name}")
+def get_skill(name: str):
+    """Get full skill content."""
+    sanitized = _validate_skill_name(name)
+    skill_file = _skills_dir() / sanitized / "SKILL.md"
+    if not skill_file.exists():
+        raise HTTPException(404, f"Skill '{sanitized}' not found")
+    text = skill_file.read_text(encoding="utf-8")
+    parsed = _parse_skill_frontmatter(text)
+    if not parsed["name"]:
+        parsed["name"] = sanitized
+    return {
+        "name": parsed["name"],
+        "description": parsed["description"],
+        "enabled": parsed["enabled"],
+        "auto_invoke": parsed["auto_invoke"],
+        "version": parsed["version"],
+        "body": parsed["body"],
+    }
+
+
+@app.post("/api/skills")
+async def post_skills(request: Request):
+    """Manage skills: create, update, delete, toggle."""
+    body = await request.json()
+    action = body.get("action")
+    name = body.get("name", "")
+
+    if not action:
+        raise HTTPException(400, "Missing 'action'")
+
+    if action == "create":
+        sanitized = _validate_skill_name(name)
+        description = body.get("description", "")
+        content = body.get("content", "")
+        auto_invoke = body.get("auto_invoke", True)
+        skill_dir = _skills_dir() / sanitized
+        if skill_dir.exists():
+            raise HTTPException(409, f"Skill '{sanitized}' already exists")
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        frontmatter = _build_skill_frontmatter(sanitized, description, True, auto_invoke)
+        (skill_dir / "SKILL.md").write_text(frontmatter + "\n" + content, encoding="utf-8")
+        return {"ok": True, "message": f"Skill '{sanitized}' created"}
+
+    if action == "update":
+        sanitized = _validate_skill_name(name)
+        skill_file = _skills_dir() / sanitized / "SKILL.md"
+        if not skill_file.exists():
+            raise HTTPException(404, f"Skill '{sanitized}' not found")
+        existing = _parse_skill_frontmatter(skill_file.read_text(encoding="utf-8"))
+        content = body.get("content", existing["body"])
+        description = body.get("description", existing["description"])
+        frontmatter = _build_skill_frontmatter(
+            existing["name"] or sanitized, description,
+            existing["enabled"], existing["auto_invoke"], existing["version"],
+        )
+        skill_file.write_text(frontmatter + "\n" + content, encoding="utf-8")
+        return {"ok": True, "message": f"Skill '{sanitized}' updated"}
+
+    if action == "delete":
+        sanitized = _validate_skill_name(name)
+        skill_dir = _skills_dir() / sanitized
+        if not skill_dir.exists():
+            raise HTTPException(404, f"Skill '{sanitized}' not found")
+        import shutil as _shutil
+        _shutil.rmtree(skill_dir)
+        return {"ok": True, "message": f"Skill '{sanitized}' deleted"}
+
+    if action == "toggle":
+        sanitized = _validate_skill_name(name)
+        skill_file = _skills_dir() / sanitized / "SKILL.md"
+        if not skill_file.exists():
+            raise HTTPException(404, f"Skill '{sanitized}' not found")
+        enabled = body.get("enabled", True)
+        existing = _parse_skill_frontmatter(skill_file.read_text(encoding="utf-8"))
+        frontmatter = _build_skill_frontmatter(
+            existing["name"] or sanitized, existing["description"],
+            enabled, existing["auto_invoke"], existing["version"],
+        )
+        skill_file.write_text(frontmatter + "\n" + existing["body"], encoding="utf-8")
+        status = "enabled" if enabled else "disabled"
+        return {"ok": True, "message": f"Skill '{sanitized}' {status}"}
+
+    if action == "toggle_auto":
+        sanitized = _validate_skill_name(name)
+        skill_file = _skills_dir() / sanitized / "SKILL.md"
+        if not skill_file.exists():
+            raise HTTPException(404, f"Skill '{sanitized}' not found")
+        auto_invoke = body.get("auto_invoke", True)
+        existing = _parse_skill_frontmatter(skill_file.read_text(encoding="utf-8"))
+        frontmatter = _build_skill_frontmatter(
+            existing["name"] or sanitized, existing["description"],
+            existing["enabled"], auto_invoke, existing["version"],
+        )
+        skill_file.write_text(frontmatter + "\n" + existing["body"], encoding="utf-8")
+        status = "on" if auto_invoke else "off"
+        return {"ok": True, "message": f"Skill '{sanitized}' auto-invoke {status}"}
+
+    raise HTTPException(400, f"Unknown action: {action}")
+
+
 # ----- Static files / Dashboard UI -----
 
 DASHBOARD_DIR = pathlib.Path(__file__).parent / "static"

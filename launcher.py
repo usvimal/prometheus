@@ -718,6 +718,145 @@ def _handle_groups_command(text: str, chat_id: int):
         send_with_budget(chat_id, "\n".join(lines))
 
 
+def _handle_skills_command(text: str, chat_id: int):
+    """Handle /skills subcommands for managing agent skills."""
+    import shutil as _shutil
+    from pathlib import Path as _Path
+    skills_root = DRIVE_ROOT / "skills"
+
+    parts = text.strip().split(None, 3)
+    sub = parts[1].lower() if len(parts) > 1 else ""
+
+    # --- /skills (no args) or /skills list ---
+    if not sub or sub == "list":
+        if not skills_root.exists() or not any(skills_root.iterdir()):
+            send_with_budget(chat_id, "📦 No skills installed.")
+            return
+        lines = ["📦 Skills:"]
+        for entry in sorted(skills_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            sf = entry / "SKILL.md"
+            if not sf.exists():
+                continue
+            try:
+                from prometheus.tools.skills import parse_skill_file
+                parsed = parse_skill_file(sf.read_text(encoding="utf-8"))
+                status = "✅" if parsed["enabled"] else "⬜"
+                auto = " [auto]" if parsed["auto_invoke"] and parsed["enabled"] else ""
+                desc = (parsed["description"] or "No description")[:60]
+                lines.append(f"  {status} {entry.name}{auto} — {desc}")
+            except Exception:
+                lines.append(f"  ⚠️ {entry.name} — parse error")
+        send_with_budget(chat_id, "\n".join(lines))
+        return
+
+    # --- /skills help ---
+    if sub == "help":
+        lines = [
+            "📦 /skills — Skill management:",
+            "  /skills — list all skills",
+            "  /skills create <name> — create skill (send content in next message)",
+            "  /skills delete <name> — delete a skill",
+            "  /skills enable <name> — enable a skill",
+            "  /skills disable <name> — disable a skill",
+            "  /skills info <name> — show full skill content",
+            "",
+            "Skills are instruction packages (SKILL.md) that teach the agent",
+            "new capabilities. They are injected into the LLM system prompt.",
+            "Auto-invoke skills are included automatically; others are read on-demand.",
+        ]
+        send_with_budget(chat_id, "\n".join(lines))
+        return
+
+    # --- /skills create <name> ---
+    if sub == "create":
+        name = parts[2].strip().lower() if len(parts) > 2 else ""
+        if not name:
+            send_with_budget(chat_id, "Usage: /skills create <name>")
+            return
+        skill_dir = skills_root / name
+        if skill_dir.exists():
+            send_with_budget(chat_id, f"⚠️ Skill '{name}' already exists.")
+            return
+        # Create with placeholder — user can edit via dashboard or agent
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        content = parts[3].strip() if len(parts) > 3 else ""
+        from prometheus.tools.skills import build_skill_frontmatter
+        frontmatter = build_skill_frontmatter(name, "New skill (edit description)", True, True)
+        body = content if content else "## Instructions\n\n(Add skill instructions here)"
+        (skill_dir / "SKILL.md").write_text(frontmatter + "\n" + body, encoding="utf-8")
+        send_with_budget(chat_id, f"✅ Skill '{name}' created. Edit via dashboard or agent.")
+        return
+
+    # --- /skills delete <name> ---
+    if sub == "delete":
+        name = parts[2].strip().lower() if len(parts) > 2 else ""
+        if not name:
+            send_with_budget(chat_id, "Usage: /skills delete <name>")
+            return
+        skill_dir = skills_root / name
+        if not skill_dir.exists():
+            send_with_budget(chat_id, f"⚠️ Skill '{name}' not found.")
+            return
+        _shutil.rmtree(str(skill_dir))
+        send_with_budget(chat_id, f"🗑 Skill '{name}' deleted.")
+        return
+
+    # --- /skills enable <name> ---
+    if sub == "enable":
+        name = parts[2].strip().lower() if len(parts) > 2 else ""
+        if not name:
+            send_with_budget(chat_id, "Usage: /skills enable <name>")
+            return
+        sf = skills_root / name / "SKILL.md"
+        if not sf.exists():
+            send_with_budget(chat_id, f"⚠️ Skill '{name}' not found.")
+            return
+        from prometheus.tools.skills import parse_skill_file, build_skill_frontmatter
+        parsed = parse_skill_file(sf.read_text(encoding="utf-8"))
+        fm = build_skill_frontmatter(parsed["name"] or name, parsed["description"], True, parsed["auto_invoke"], parsed["version"])
+        sf.write_text(fm + "\n" + parsed["body"], encoding="utf-8")
+        send_with_budget(chat_id, f"✅ Skill '{name}' enabled.")
+        return
+
+    # --- /skills disable <name> ---
+    if sub == "disable":
+        name = parts[2].strip().lower() if len(parts) > 2 else ""
+        if not name:
+            send_with_budget(chat_id, "Usage: /skills disable <name>")
+            return
+        sf = skills_root / name / "SKILL.md"
+        if not sf.exists():
+            send_with_budget(chat_id, f"⚠️ Skill '{name}' not found.")
+            return
+        from prometheus.tools.skills import parse_skill_file, build_skill_frontmatter
+        parsed = parse_skill_file(sf.read_text(encoding="utf-8"))
+        fm = build_skill_frontmatter(parsed["name"] or name, parsed["description"], False, parsed["auto_invoke"], parsed["version"])
+        sf.write_text(fm + "\n" + parsed["body"], encoding="utf-8")
+        send_with_budget(chat_id, f"⬜ Skill '{name}' disabled.")
+        return
+
+    # --- /skills info <name> ---
+    if sub == "info":
+        name = parts[2].strip().lower() if len(parts) > 2 else ""
+        if not name:
+            send_with_budget(chat_id, "Usage: /skills info <name>")
+            return
+        sf = skills_root / name / "SKILL.md"
+        if not sf.exists():
+            send_with_budget(chat_id, f"⚠️ Skill '{name}' not found.")
+            return
+        content = sf.read_text(encoding="utf-8")
+        # Truncate for Telegram (max ~4000 chars)
+        if len(content) > 3800:
+            content = content[:3800] + "\n\n... (truncated)"
+        send_with_budget(chat_id, f"📦 Skill: {name}\n\n{content}")
+        return
+
+    send_with_budget(chat_id, "Unknown /skills subcommand. Try /skills help")
+
+
 def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     """Handle supervisor slash-commands.
 
@@ -729,7 +868,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     lowered = text.strip().lower()
 
     # Rate-limit read-only commands to prevent flood
-    rate_limited_cmds = ("/queue", "/status", "/budget", "/workers", "/evolve", "/dashboard", "/help")
+    rate_limited_cmds = ("/queue", "/status", "/budget", "/workers", "/evolve", "/dashboard", "/skills", "/help")
     for prefix in rate_limited_cmds:
         if lowered.startswith(prefix) and " " not in lowered.strip().strip("/"):
             now = time.time()
@@ -872,6 +1011,10 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         _handle_groups_command(text, chat_id)
         return True
 
+    if lowered.startswith("/skills"):
+        _handle_skills_command(text, chat_id)
+        return True
+
     if lowered.startswith("/help"):
         lines = [
             "📖 Commands:",
@@ -880,6 +1023,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
             "  /budget — spending info",
             "  /workers — worker pool",
             "  /groups [help|add|remove|<id> ...] — group config",
+            "  /skills [help|create|delete|enable|disable|info] — skill management",
             "  /evolve [start|stop] — evolution mode",
             "  /bg [start|stop] — background consciousness",
             "  /review — queue a code review",

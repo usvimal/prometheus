@@ -102,6 +102,8 @@ EXPECTED_TOOLS = [
     "send_owner_message", "send_photo",
     "codebase_digest", "codebase_health", "http_request", "system_monitor",
     "knowledge_read", "knowledge_write", "knowledge_list",
+    # Skills (v6.8.0)
+    "skill_list", "skill_read", "skill_create", "skill_update", "skill_toggle",
     "multi_model_review",
     # GitHub Issues
     "list_github_issues", "get_github_issue", "comment_on_issue",

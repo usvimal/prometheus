@@ -110,6 +110,27 @@
   .privacy-note { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
                   padding: 12px; font-size: 12px; color: var(--text-dim); margin-top: 16px; line-height: 1.6; }
   .privacy-note strong { color: var(--accent); }
+
+  /* Skills */
+  .skill-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .skill-card.disabled { opacity: 0.6; }
+  .skill-card h3 { font-size: 14px; color: var(--accent); margin-bottom: 4px; font-family: monospace; display: flex; align-items: center; gap: 8px; }
+  .skill-desc { color: var(--text-dim); font-size: 12px; margin-bottom: 10px; }
+  .skill-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .skill-controls label { color: var(--text-dim); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+  .skill-controls input[type="checkbox"] { accent-color: var(--accent); }
+  .skill-body-preview { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px;
+                        font-size: 12px; font-family: monospace; white-space: pre-wrap; max-height: 300px;
+                        overflow-y: auto; margin-top: 10px; display: none; line-height: 1.5; }
+  .skill-body-preview.open { display: block; }
+  .create-skill-form { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+                       padding: 16px; margin-bottom: 16px; }
+  .create-skill-form h3 { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+  .form-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .form-row input, .form-row textarea { background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 10px; font-size: 13px; font-family: monospace; }
+  .form-row input { flex: 1; }
+  .form-row textarea { flex: 1; min-height: 80px; resize: vertical; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -128,6 +149,7 @@
   <div class="tab" data-tab="logs">Logs</div>
   <div class="tab" data-tab="memory">Memory</div>
   <div class="tab" data-tab="groups">Groups</div>
+  <div class="tab" data-tab="skills">Skills</div>
   <div class="tab" data-tab="evolution">Evolution</div>
 </div>
 
@@ -207,6 +229,25 @@
   </div>
 </div>
 
+<!-- ===== SKILLS TAB ===== -->
+<div class="tab-content" id="tab-skills">
+  <div class="create-skill-form">
+    <h3>Create Skill</h3>
+    <div class="form-row">
+      <input type="text" id="newSkillName" placeholder="skill-name (lowercase, hyphens ok)">
+      <input type="text" id="newSkillDesc" placeholder="One-line description" style="flex:2">
+    </div>
+    <div class="form-row">
+      <textarea id="newSkillContent" placeholder="Markdown instructions for the skill..."></textarea>
+    </div>
+    <div class="form-row">
+      <label style="color:var(--text-dim);font-size:12px"><input type="checkbox" id="newSkillAuto" checked> Auto-invoke (inject into prompt)</label>
+      <button class="btn" onclick="createSkill()">Create Skill</button>
+    </div>
+  </div>
+  <div id="skillsList"></div>
+</div>
+
 <!-- ===== EVOLUTION TAB ===== -->
 <div class="tab-content" id="tab-evolution">
   <div class="grid">
@@ -275,6 +316,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   if (t.dataset.tab === 'logs') loadLogs();
   if (t.dataset.tab === 'memory') loadMemory();
   if (t.dataset.tab === 'groups') loadGroups();
+  if (t.dataset.tab === 'skills') loadSkills();
   if (t.dataset.tab === 'evolution') loadEvolution();
 }));
 
@@ -474,6 +516,97 @@ async function addUser(gid) {
 async function removeUser(gid, uid) {
   await groupPost({action: 'remove_user', group_id: gid, user_id: uid});
   loadGroups();
+}
+
+// Skills
+async function loadSkills() {
+  const data = await fetchJSON('/api/skills');
+  const skills = (data && data.skills) || [];
+  const container = $('skillsList');
+  if (!skills.length) {
+    container.innerHTML = '<div style="color:var(--text-dim);padding:12px">No skills installed. Create one above or use the <code>skill_create</code> tool.</div>';
+    return;
+  }
+  container.innerHTML = skills.map(s => {
+    const cls = s.enabled ? 'skill-card' : 'skill-card disabled';
+    return '<div class="' + cls + '" id="sk-' + esc(s.dir_name) + '">' +
+      '<h3>' + esc(s.name) +
+        ' <span class="badge ' + (s.enabled ? 'ok' : 'err') + '">' + (s.enabled ? 'enabled' : 'disabled') + '</span>' +
+        (s.auto_invoke ? ' <span class="badge warn">auto</span>' : '') +
+        ' <span style="margin-left:auto;display:flex;gap:6px">' +
+          '<button class="btn btn-sm" onclick="viewSkill(\'' + esc(s.dir_name) + '\')">View</button>' +
+          '<button class="btn btn-sm btn-danger" onclick="deleteSkill(\'' + esc(s.dir_name) + '\')">Delete</button>' +
+        '</span>' +
+      '</h3>' +
+      '<div class="skill-desc">' + esc(s.description) + '</div>' +
+      '<div class="skill-controls">' +
+        '<label><input type="checkbox" ' + (s.enabled ? 'checked' : '') +
+          ' onchange="toggleSkill(\'' + esc(s.dir_name) + '\',this.checked)"> Enabled</label>' +
+        '<label><input type="checkbox" ' + (s.auto_invoke ? 'checked' : '') +
+          ' onchange="toggleSkillAuto(\'' + esc(s.dir_name) + '\',this.checked)"> Auto-invoke</label>' +
+        ' <span style="color:var(--text-dim);font-size:11px">v' + (s.version || 1) + '</span>' +
+      '</div>' +
+      '<div class="skill-body-preview" id="skb-' + esc(s.dir_name) + '"></div>' +
+    '</div>';
+  }).join('');
+}
+
+async function skillPost(body) {
+  try {
+    const r = await fetch('/api/skills', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.detail || 'Error'); return false; }
+    return true;
+  } catch { return false; }
+}
+
+async function createSkill() {
+  const name = $('newSkillName').value.trim();
+  const desc = $('newSkillDesc').value.trim();
+  const content = $('newSkillContent').value;
+  const auto = $('newSkillAuto').checked;
+  if (!name) { $('newSkillName').style.borderColor = 'var(--red)'; return; }
+  if (!desc) { $('newSkillDesc').style.borderColor = 'var(--red)'; return; }
+  $('newSkillName').style.borderColor = '';
+  $('newSkillDesc').style.borderColor = '';
+  const ok = await skillPost({action: 'create', name, description: desc, content, auto_invoke: auto});
+  if (ok) {
+    $('newSkillName').value = '';
+    $('newSkillDesc').value = '';
+    $('newSkillContent').value = '';
+    loadSkills();
+  }
+}
+
+async function deleteSkill(name) {
+  if (!confirm('Delete skill "' + name + '"?')) return;
+  await skillPost({action: 'delete', name});
+  loadSkills();
+}
+
+async function toggleSkill(name, enabled) {
+  await skillPost({action: 'toggle', name, enabled});
+}
+
+async function toggleSkillAuto(name, auto_invoke) {
+  await skillPost({action: 'toggle_auto', name, auto_invoke});
+}
+
+async function viewSkill(name) {
+  const el = $('skb-' + name);
+  if (el.classList.contains('open')) {
+    el.classList.remove('open');
+    return;
+  }
+  el.textContent = 'Loading...';
+  el.classList.add('open');
+  const data = await fetchJSON('/api/skills/' + encodeURIComponent(name));
+  if (data && data.body) {
+    el.textContent = data.body;
+  } else {
+    el.textContent = '(empty or error)';
+  }
 }
 
 // Evolution
