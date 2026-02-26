@@ -106,6 +106,7 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
             logger.debug("Failed to persist queue snapshot after task_done", exc_info=True)
 
     # Track evolution task success/failure for circuit breaker
+    # Also trigger auto-restart after successful evolution
     if task_type == "evolution":
         st = ctx.load_state()
         
@@ -127,6 +128,24 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
             st["evolution_consecutive_failures"] = 0
             logger.info(f"Evolution task {task_id} succeeded (rounds={rounds}), resetting failure counter")
             ctx.save_state(st)
+            
+            # Auto-restart after successful evolution to apply code changes
+            logger.info(f"Evolution task {task_id} succeeded - requesting restart to apply changes")
+            ctx.pending_events.append({
+                "type": "restart_request",
+                "reason": f"Auto-restart after successful evolution (task {task_id})",
+                "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            })
+            
+            # Notify owner
+            if st.get("owner_chat_id"):
+                try:
+                    ctx.send_with_budget(
+                        int(st["owner_chat_id"]),
+                        "🧬 Evolution completed successfully! Auto-restarting to apply changes...",
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to send evolution success notification: {e}")
         else:
             # Likely failure (no rounds = immediate failure)
             failures = int(st.get("evolution_consecutive_failures") or 0) + 1
