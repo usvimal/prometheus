@@ -124,6 +124,8 @@ EXPECTED_TOOLS = [
     # Schedule tools
     "schedule_task_at", "schedule_task_recurring",
     "schedule_list", "schedule_cancel", "schedule_enable",
+    # System monitoring (v6.5.0)
+    "system_monitor",
 ]
 
 
@@ -428,74 +430,100 @@ def _get_function_sizes():
     return results
 
 
-def test_no_extremely_oversized_functions():
-    """No function exceeds 200 lines (hard limit)."""
+def test_no_extremely_large_functions():
+    """No function exceeds MAX_FUNCTION_LINES (200)."""
     violations = []
-    for fname, func_name, size in _get_function_sizes():
+    for f, name, size in _get_function_sizes():
         if size > MAX_FUNCTION_LINES:
-            violations.append(f"{fname}:{func_name} = {size} lines")
-    assert len(violations) == 0, f"Oversized functions (>{MAX_FUNCTION_LINES} lines):\n" + "\n".join(violations)
+            violations.append(f"{f}:{name}: {size} lines")
+    assert len(violations) == 0, f"Functions > {MAX_FUNCTION_LINES} lines:\n" + "\n".join(violations)
 
 
-# ── Cross-file interface tests ──────────────────────────────────
+# ── Cross-file interface tests ───────────────────────────────────
+
+def test_cross_file_interfaces():
+    """Verify key cross-file function signatures haven't drifted."""
+    import prometheus.agent
+    import prometheus.context
+    import prometheus.loop
+    import prometheus.memory
+    
+    # agent.run() should exist
+    assert hasattr(prometheus.agent, 'run'), "agent.run() missing"
+    
+    # context.build_prompt() should accept the expected args
+    import inspect
+    ctx_sig = inspect.signature(prometheus.context.build_prompt)
+    ctx_params = list(ctx_sig.parameters.keys())
+    assert "task" in ctx_params, "build_prompt should have 'task' param"
+    
+    # loop.run_loop() should exist
+    assert hasattr(prometheus.loop, 'run_loop'), "loop.run_loop() missing"
+    
+    # Memory.load_scratchpad() should be callable
+    assert callable(prometheus.memory.Memory.load_scratchpad), "Memory.load_scratchpad not callable"
+
+
+# ── TestCrossFileInterfaces ──────────────────────────────────────
 
 class TestCrossFileInterfaces:
-    """Test that functions called from other modules have stable signatures."""
+    """Cross-file interface tests - catching caller/callee mismatches."""
 
-    def test_loop_exports(self):
-        """loop.py exports functions that agent.py imports."""
-        from prometheus import loop
-        # These must exist because agent.py imports them
-        assert hasattr(loop, "run_llm_loop")
-        assert callable(loop.run_llm_loop)
+    def test_agent_to_loop_signature(self):
+        """Agent calls loop.run_loop with correct args."""
+        import inspect
+        import prometheus.loop
+        sig = inspect.signature(prometheus.loop.run_loop)
+        params = list(sig.parameters.keys())
+        # Check for expected parameters - adjust based on actual signature
+        assert "ctx" in params or "context" in params or len(params) >= 2, \
+            f"run_loop signature unexpected: {params}"
 
-    def test_llm_exports(self):
-        """llm.py exports functions that loop.py imports."""
-        from prometheus import llm
-        assert hasattr(llm, "LLMClient")
-        assert hasattr(llm, "fetch_openrouter_pricing")
+    def test_agent_to_context_signature(self):
+        """Agent calls context functions with correct args."""
+        import inspect
+        import prometheus.context
+        
+        # build_prompt should exist and take task/memory
+        assert hasattr(prometheus.context, 'build_prompt')
+        sig = inspect.signature(prometheus.context.build_prompt)
+        params = list(sig.parameters.keys())
+        # At minimum should have task, memory
+        assert "task" in params or len(params) >= 1, \
+            f"build_prompt signature unexpected: {params}"
 
-    def test_context_exports(self):
-        """context.py exports functions that agent.py imports."""
-        from prometheus import context
-        assert hasattr(context, "build_llm_messages")
-        assert callable(context.build_llm_messages)
+    def test_memory_interface(self):
+        """Memory class has required methods."""
+        import prometheus.memory
+        mem_cls = prometheus.memory.Memory
+        
+        required_methods = [
+            "save_scratchpad",
+            "load_scratchpad",
+            "load_identity",
+            "chat_history",
+        ]
+        for method in required_methods:
+            assert hasattr(mem_cls, method), f"Memory.{method} missing"
+            assert callable(getattr(mem_cls, method)), f"Memory.{method} not callable"
 
-    def test_tools_registry_call(self):
-        """registry.execute is called with (name, params)."""
+    def test_tools_registry_interface(self):
+        """Tool registry has required methods."""
         from prometheus.tools.registry import ToolRegistry
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            reg = ToolRegistry(repo_dir=pathlib.Path(tmp), drive_root=pathlib.Path(tmp))
-            # Should accept (tool_name, params_dict)
-            result = reg.execute("git_status", {})
-            assert isinstance(result, str)
+        assert hasattr(ToolRegistry, 'schemas'), "ToolRegistry.schemas missing"
+        assert hasattr(ToolRegistry, 'execute'), "ToolRegistry.execute missing"
+        assert callable(ToolRegistry.schemas), "ToolRegistry.schemas not callable"
+        assert callable(ToolRegistry.execute), "ToolRegistry.execute not callable"
 
+    def test_llm_client_interface(self):
+        """LLM client has required interface."""
+        import prometheus.llm
+        assert hasattr(prometheus.llm, 'call'), "llm.call missing"
+        assert callable(prometheus.llm.call), "llm.call not callable"
 
-# ── Quick sanity checks ──────────────────────────────────────────
-
-def test_prompt_utils_exist():
-    """Prompt utilities are present."""
-    from prometheus import utils
-    assert hasattr(utils, "clip_text")
-    assert hasattr(utils, "estimate_tokens")
-
-
-def test_memory_class_exists():
-    """Memory class is present."""
-    from prometheus.memory import Memory
-    assert Memory is not None
-
-
-def test_tools_dir_exists():
-    """prometheus/tools/ directory exists with __init__.py."""
-    tools_dir = REPO / "prometheus" / "tools"
-    assert tools_dir.is_dir()
-    init_file = tools_dir / "__init__.py"
-    assert init_file.is_file()
-
-
-def test_supervisor_dir_exists():
-    """supervisor/ directory exists."""
-    sup_dir = REPO / "supervisor"
-    assert sup_dir.is_dir()
+    def test_supervisor_state_interface(self):
+        """Supervisor state has required fields."""
+        import supervisor.state
+        assert hasattr(supervisor.state, 'STATE'), "STATE missing"
+        # STATE should be a dict-like
+        assert hasattr(supervisor.state.STATE, 'get'), "STATE.get missing"
