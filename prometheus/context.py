@@ -371,6 +371,29 @@ def build_llm_messages(
         fallback="You are Prometheus. Your base prompt could not be loaded."
     )
 
+    # --- Auto-knowledge-check: scan knowledge base for relevant tips ---
+    task_text = str(task.get("text") or "")
+    if task_text and task_type not in ("consciousness",):
+        try:
+            kb_dir = env.drive_path("memory/knowledge")
+            if kb_dir.exists():
+                import pathlib as _pl
+                relevant_kb = []
+                task_lower = task_text.lower()
+                for kb_file in sorted(kb_dir.iterdir()):
+                    if kb_file.suffix == ".md" and kb_file.name != "_index.md":
+                        topic = kb_file.stem.replace("-", " ").replace("_", " ")
+                        # Check if topic keywords appear in task text
+                        topic_words = topic.split()
+                        if any(w in task_lower for w in topic_words if len(w) > 3):
+                            kb_content = _safe_read(kb_file, fallback="")
+                            if kb_content.strip():
+                                relevant_kb.append(f"### {topic}\n{kb_content.strip()}")
+                if relevant_kb:
+                    base_prompt += "\n\n## Relevant Knowledge\n\n" + "\n\n".join(relevant_kb[:3])
+        except Exception:
+            pass  # Don't break context building for knowledge check failures
+
     # Conditional prompt sections — saves ~950 tokens on non-evolution/consciousness tasks
     if task_type in ("evolution", "review"):
         evo_prompt = _safe_read(env.repo_path("prompts/EVOLUTION.md"), fallback="")

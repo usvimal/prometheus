@@ -433,7 +433,7 @@ def _computer_list_windows(ctx: ToolContext) -> str:
             "message": "Window listing not available on this platform",
             "screen_size": {"width": size.width, "height": size.height},
         }, ensure_ascii=False)
-    except:
+    except Exception:
         pass
     
     return json.dumps({

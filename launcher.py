@@ -603,6 +603,22 @@ def handle_one_update(offset: int) -> int:
                     send_with_budget(chat_id, f"❌ Auth failed: {e}")
                 continue
 
+        # Dedup: skip messages we've already processed (Telegram sometimes re-delivers)
+        import hashlib as _hl
+        _msg_hash = _hl.md5((text or caption or "")[:200].encode()).hexdigest()[:12]
+        if not hasattr(handle_one_update, '_seen_msgs'):
+            handle_one_update._seen_msgs = {}
+        _now = time.time()
+        # Clean old entries (>30s)
+        handle_one_update._seen_msgs = {
+            k: v for k, v in handle_one_update._seen_msgs.items()
+            if _now - v < 30
+        }
+        if _msg_hash in handle_one_update._seen_msgs:
+            log.debug("Dedup: skipping re-delivered message hash=%s", _msg_hash)
+            continue
+        handle_one_update._seen_msgs[_msg_hash] = _now
+
         # Log chat (incoming message from owner)
         try:
             msg_text = text or caption or "(image)"

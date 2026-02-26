@@ -32,19 +32,19 @@ def _run_shell(ctx: ToolContext, cmd, cwd: str = "") -> str:
                     cmd = shlex.split(parsed)
                 except ValueError:
                     cmd = parsed.split()
-                warning = "run_shell_cmd_string_json_string_split"
+                warning = None  # String commands are normal
             else:
                 try:
                     cmd = shlex.split(cmd)
                 except ValueError:
                     cmd = cmd.split()
-                warning = "run_shell_cmd_string_json_non_list_split"
+                warning = None  # String commands are normal
         except Exception:
             try:
                 cmd = shlex.split(cmd)
             except ValueError:
                 cmd = cmd.split()
-            warning = "run_shell_cmd_string_split_fallback"
+            warning = None  # String commands are normal for MiniMax
 
         try:
             append_jsonl(ctx.drive_logs() / "events.jsonl", {

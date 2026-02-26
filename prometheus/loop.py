@@ -26,7 +26,7 @@ from prometheus.utils import utc_now_iso, append_jsonl, truncate_for_log, saniti
 log = logging.getLogger(__name__)
 
 # Reflection after consecutive tool failures
-_REFLECTION_PROMPT = "REFLECTION: The last {count} tool calls all returned errors. Before trying again, think step by step: 1) What exactly went wrong? 2) Am I using the right tool? 3) Are my arguments correct? 4) Should I try a different approach? Explain your reasoning, then try ONE corrected action."
+_REFLECTION_PROMPT = "REFLECTION: The last {count} tool calls errored. Think: 1) What went wrong? 2) Right tool? 3) Correct args? 4) Different approach? Explain reasoning, then try ONE corrected action."
 _MAX_CONSECUTIVE_ERRORS = 3
 
 # Pricing from OpenRouter API (2026-02-17). Update periodically via /api/v1/models.
@@ -127,7 +127,6 @@ READ_ONLY_PARALLEL_TOOLS = frozenset({
 # Stateful browser tools require thread-affinity (Playwright sync uses greenlet)
 STATEFUL_BROWSER_TOOLS = frozenset({"browse_page", "browser_action"})
 
-
 def _truncate_tool_result(result: Any) -> str:
     """
     Hard-cap tool result string to 15000 characters.
@@ -138,7 +137,6 @@ def _truncate_tool_result(result: Any) -> str:
         return result_str
     original_len = len(result_str)
     return result_str[:15000] + f"\n... (truncated from {original_len} chars)"
-
 
 def _execute_single_tool(
     tools: ToolRegistry,
@@ -704,44 +702,12 @@ def run_llm_loop(
                 max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
             )
 
-            # Fallback to another model if primary model returns empty responses
+            # No model fallback — MiniMax is the only LLM
             if msg is None:
-                # Configurable fallback priority list (Bible P3: no hardcoded behavior)
-                fallback_list_raw = os.environ.get(
-                    "PROMETHEUS_MODEL_FALLBACK_LIST",
-                    "google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6"
-                )
-                fallback_candidates = [m.strip() for m in fallback_list_raw.split(",") if m.strip()]
-                fallback_model = None
-                for candidate in fallback_candidates:
-                    if candidate != active_model:
-                        fallback_model = candidate
-                        break
-                if fallback_model is None:
-                    return (
-                        f"⚠️ Failed to get a response from model {active_model} after {max_retries} attempts. "
-                        f"All fallback models match the active one. Try rephrasing your request."
-                    ), accumulated_usage, llm_trace
-
-                # Emit progress message so user sees fallback happening
-                fallback_progress = f"⚡ Fallback: {active_model} → {fallback_model} after empty response"
-                emit_progress(fallback_progress)
-
-                # Try fallback model (don't increment round_idx — this is still same logical round)
-                msg, fallback_cost = _call_llm_with_retry(
-                    llm, messages, fallback_model, tool_schemas, active_effort,
-                    max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
-                )
-
-                # If fallback also fails, give up
-                if msg is None:
-                    return (
-                        f"⚠️ Failed to get a response from the model after {max_retries} attempts. "
-                        f"Fallback model ({fallback_model}) also returned no response."
-                    ), accumulated_usage, llm_trace
-
-                # Fallback succeeded — continue processing with this msg
-                # (don't return — fall through to tool_calls processing below)
+                return (
+                    f"\u26a0\ufe0f MiniMax returned no response after {max_retries} attempts. "
+                    f"The API may be temporarily unavailable. Try again later."
+                ), accumulated_usage, llm_trace
 
             tool_calls = msg.get("tool_calls") or []
             content = msg.get("content")
@@ -766,6 +732,9 @@ def run_llm_loop(
                 tool_calls, tools, drive_logs, task_id, stateful_executor,
                 messages, llm_trace, emit_progress
             )
+
+            # --- Reflection after consecutive errors ---
+            _maybe_inject_reflection(error_count, messages, emit_progress)
 
             # --- Budget guard ---
             # LLM decides when to stop (Bible P0, P3). We only enforce hard budget limit.
