@@ -332,7 +332,6 @@ class LLMClient:
                     return float(cost)
         except Exception:
             log.debug("Failed to fetch generation cost from OpenRouter", exc_info=True)
-            pass
         return None
 
     def chat(
