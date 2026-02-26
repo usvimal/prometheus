@@ -463,7 +463,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
             f"**Branch:** {st.get('current_branch', '?')}",
             f"**Workers:** {len(WORKERS)}",
             f"**Budget:** ${st.get('spent_usd', 0):.2f} / ${TOTAL_BUDGET_LIMIT:.2f}",
-            f"**Consciousness:** {'running' if _consciousness.running else 'stopped'}",
+            f"**Consciousness:** {'running' if _consciousness.is_running else 'stopped'}",
         ]
         send_with_budget(chat_id, "\n".join(lines))
         return True
@@ -511,7 +511,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
             _consciousness.stop()
             send_with_budget(chat_id, "Background consciousness stopped.")
         else:
-            send_with_budget(chat_id, f"Background: {'running' if _consciousness.running else 'stopped'}")
+            send_with_budget(chat_id, f"Background: {'running' if _consciousness.is_running else 'stopped'}")
         return True
 
     if lowered.startswith("/review"):
