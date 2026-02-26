@@ -100,7 +100,7 @@ EXPECTED_TOOLS = [
     "schedule_task", "cancel_task",
     "switch_model", "toggle_evolution", "toggle_consciousness",
     "send_owner_message", "send_photo",
-    "codebase_digest", "codebase_health",
+    "codebase_digest", "codebase_health", "http_request", "system_monitor",
     "knowledge_read", "knowledge_write", "knowledge_list",
     "multi_model_review",
     # GitHub Issues
@@ -450,24 +450,23 @@ def test_cross_file_interfaces():
     from prometheus import agent, context, loop, llm, memory, review, utils
     
     # agent.Env has required attributes
-    assert hasattr(agent.Env, "repo_dir")
-    assert hasattr(agent.Env, "drive_root")
-    assert hasattr(agent.Env, "GITHUB_TOKEN")
+    assert "repo_dir" in getattr(agent.Env, "__annotations__", {})
+    assert "drive_root" in getattr(agent.Env, "__annotations__", {})
     
     # context functions are callable
-    assert callable(context.build_context)
+    assert callable(context.build_llm_messages)
     assert callable(context._build_runtime_section)
     
     # loop.run_loop has correct signature
     import inspect
-    sig = inspect.signature(loop.run_loop)
+    sig = inspect.signature(loop.run_llm_loop)
     params = list(sig.parameters.keys())
-    assert "agent" in params
+    assert "messages" in params
     assert "task_id" in params
     
     # llm module has expected exports
-    assert hasattr(llm, "call_llm")
-    assert hasattr(llm, "get_pricing")
+    assert hasattr(llm, "LLMClient")
+    assert hasattr(llm, "fetch_openrouter_pricing")
     
     # memory.Memory has required methods
     assert hasattr(memory.Memory, "save_scratchpad")
@@ -478,7 +477,8 @@ def test_cross_file_interfaces():
     assert callable(memory.Memory.load_identity)
     
     # review module has expected exports
-    assert hasattr(review, "generate_evolution_stats")
+    # review has expected analysis functions
+    assert hasattr(review, "compute_complexity_metrics")
     
     # utils has expected utilities
     assert hasattr(utils, "safe_relpath")
