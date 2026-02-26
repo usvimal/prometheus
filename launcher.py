@@ -734,3 +734,7 @@ while True:
         time.sleep(5)
 
 log.info("Main loop exited — goodbye.")
+
+
+if __name__ == "__main__":
+    main()
