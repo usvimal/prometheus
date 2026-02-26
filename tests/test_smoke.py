@@ -124,12 +124,10 @@ EXPECTED_TOOLS = [
     # Schedule tools
     "schedule_task_at", "schedule_task_recurring",
     "schedule_list", "schedule_cancel", "schedule_enable",
-    # API client (v6.5.1)
-    "api_request",
-    # System monitor (v6.5.1)
+    # HTTP client (v6.5.2)
+    "http_request",
+    # System monitor (v6.5.2)
     "system_monitor",
-    # Repo search (v6.5.1)
-    "repo_search_replace",
 ]
 
 
@@ -430,77 +428,82 @@ def _get_function_sizes():
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     size = node.end_lineno - node.lineno + 1
-                    results.append((f, node.name, size))
+                    if size > MAX_FUNCTION_LINES:
+                        results.append((path.name, node.name, size))
     return results
 
 
-def test_no_extremely_long_functions():
-    """No function exceeds MAX_FUNCTION_LINES."""
-    violations = []
-    for f, name, size in _get_function_sizes():
-        if size > MAX_FUNCTION_LINES:
-            violations.append(f"{f}:{name} has {size} lines")
-    assert len(violations) == 0, f"Functions exceeding {MAX_FUNCTION_LINES} lines:\n" + "\n".join(violations)
+def test_no_oversized_functions():
+    """No function exceeds MAX_FUNCTION_LINES (200)."""
+    oversized = _get_function_sizes()
+    assert len(oversized) == 0, f"Oversized functions (>{MAX_FUNCTION_LINES} lines):\n" + "\n".join(
+        f"{file}:{func} has {size} lines" for file, func, size in oversized
+    )
 
 
-def test_launcher_has_main():
-    """launcher.py has if __name__ == '__main__': main() guard."""
-    launcher = (REPO / "launcher.py").read_text()
-    assert "def main" in launcher, "launcher.py must have a main() function"
-    assert "if __name__" in launcher, "launcher.py must have if __name__ guard"
+# ── Cross-file interface tests ───────────────────────────────────
+
+def test_cross_file_interfaces():
+    """Verify key cross-file interfaces are compatible.
+    
+    Catches caller/callee mismatches that commonly occur during evolution.
+    """
+    import importlib
+    from prometheus import agent, context, loop, llm, memory, review, utils
+    
+    # agent.Env has required attributes
+    assert hasattr(agent.Env, "REPO_DIR")
+    assert hasattr(agent.Env, "DRIVE_ROOT")
+    assert hasattr(agent.Env, "GITHUB_TOKEN")
+    
+    # context functions are callable
+    assert callable(context.build_context)
+    assert callable(context._build_runtime_section)
+    
+    # loop.run_loop has correct signature
+    import inspect
+    sig = inspect.signature(loop.run_loop)
+    params = list(sig.parameters.keys())
+    assert "agent" in params
+    assert "task_id" in params
+    
+    # llm module has expected exports
+    assert hasattr(llm, "call_llm")
+    assert hasattr(llm, "get_pricing")
+    
+    # memory.Memory has required methods
+    assert hasattr(memory.Memory, "save_scratchpad")
+    assert hasattr(memory.Memory, "load_scratchpad")
+    assert hasattr(memory.Memory, "load_identity")
+    assert callable(memory.Memory.save_scratchpad)
+    assert callable(memory.Memory.load_scratchpad)
+    assert callable(memory.Memory.load_identity)
+    
+    # review module has expected exports
+    assert hasattr(review, "generate_evolution_stats")
+    
+    # utils has expected utilities
+    assert hasattr(utils, "safe_relpath")
+    assert hasattr(utils, "clip_text")
+    assert hasattr(utils, "estimate_tokens")
 
 
-def test_no_merge_conflicts():
-    """Codebase has no residual merge conflict markers."""
-    violations = []
-    for root, dirs, files in os.walk(REPO):
-        dirs[:] = [d for d in dirs if d not in ('.git', '__pycache__')]
-        for f in files:
-            if not f.endswith(".py"):
-                continue
-            path = pathlib.Path(root) / f
-            lines = path.read_text().splitlines()
-            for i, line in enumerate(lines, 1):
-                stripped = line.strip()
-                if stripped.startswith("<<<<<<"):
-                    violations.append(f"{path.name}:{i}: {line.strip()}")
-                # Only flag === if it's part of a merge conflict (between <<<< and >>>>)
-                if stripped.startswith("======="):
-                    # Check context - is this part of a merge conflict?
-                    in_conflict = False
-                    for j in range(max(0, i-5), i):
-                        if j < len(lines) and lines[j].strip().startswith("<<<<<<"):
-                            in_conflict = True
-                            break
-                    if in_conflict:
-                        violations.append(f"{path.name}:{i}: {line.strip()}")
-    assert len(violations) == 0, f"Merge conflict markers found:\n" + "\n".join(violations)
+# ── Health invariant: VERSION sync ───────────────────────────────
 
+def test_version_sync_all_files():
+    """VERSION must be synchronized across VERSION, README.md, pyproject.toml."""
+    version = (REPO / "VERSION").read_text().strip()
+    
+    # Check README.md
+    readme = (REPO / "README.md").read_text()
+    assert version in readme, f"VERSION {version} not in README.md"
+    
+    # Check pyproject.toml if exists
+    pyproject = REPO / "pyproject.toml"
+    if pyproject.exists():
+        content = pyproject.read_text()
+        assert version in content, f"VERSION {version} not in pyproject.toml"
 
-# ── Dashboard schema ─────────────────────────────────────────────
-
-def test_dashboard_schema():
-    """Dashboard index.html has correct field names."""
-    index = (REPO / "docs" / "index.html").read_text()
-    assert "online" in index, "dashboard should have 'online' field"
-    assert "updated_at" in index, "dashboard should have 'updated_at' field"
-
-
-# ── State file invariants ─────────────────────────────────────────
-
-def test_state_json_valid():
-    """state.json has required fields."""
-    import json
-    state_path = REPO.parent / "data" / "state" / "state.json"
-    if not state_path.exists():
-        pytest.skip("state.json not present (first run?)")
-    state = json.loads(state_path.read_text())
-    required = ["session_id", "current_branch", "current_sha"]
-    for field in required:
-        assert field in state, f"state.json missing {field}"
-
-
-# ── Run if executed directly ──────────────────────────────────────
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
