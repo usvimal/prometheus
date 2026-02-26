@@ -756,6 +756,9 @@ def _compact_tool_call_arguments(tool_name: str, args_json: str) -> Dict[str, An
         "drive_write": "content",
         "claude_code_edit": "prompt",
         "update_scratchpad": "content",
+        "run_shell": "cmd",
+        "repo_read": "path",
+        "git_diff": None,
     }
 
     try:
@@ -768,20 +771,25 @@ def _compact_tool_call_arguments(tool_name: str, args_json: str) -> Dict[str, An
                 args[large_field] = {"_truncated": True}
                 return {"name": tool_name, "arguments": json.dumps(args, ensure_ascii=False)}
 
-        # For other tools, if args JSON is > 500 chars, truncate
+        # For other tools, if args JSON is > 500 chars, compact values
+        # CRITICAL: Must produce valid JSON — MiniMax rejects invalid JSON
+        # in conversation history, causing 400 errors on all retries.
         if len(args_json) > 500:
-            truncated = args_json[:200] + "..."
-            return {"name": tool_name, "arguments": truncated}
+            for k, v in list(args.items()):
+                if isinstance(v, str) and len(v) > 100:
+                    args[k] = v[:100] + "...[truncated]"
+                elif isinstance(v, list) and len(json.dumps(v, ensure_ascii=False)) > 200:
+                    args[k] = ["...[list truncated]"]
+                elif isinstance(v, dict) and len(json.dumps(v, ensure_ascii=False)) > 200:
+                    args[k] = {"_truncated": True}
+            return {"name": tool_name, "arguments": json.dumps(args, ensure_ascii=False)}
 
         # Otherwise return unchanged
         return {"name": tool_name, "arguments": args_json}
 
     except (json.JSONDecodeError, Exception):
-        # If we can't parse JSON, leave it unchanged
-        # But still truncate if too long
-        if len(args_json) > 500:
-            return {"name": tool_name, "arguments": args_json[:200] + "..."}
-        return {"name": tool_name, "arguments": args_json}
+        # If we can't parse JSON, return valid empty JSON (not broken truncation)
+        return {"name": tool_name, "arguments": "{}"}
 
 
 def _safe_read(path: pathlib.Path, fallback: str = "") -> str:

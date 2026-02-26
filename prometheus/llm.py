@@ -377,17 +377,20 @@ class LLMClient:
     def _prep_minimax_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Convert messages to MiniMax-compatible format.
 
-        MiniMax rejects role: system. Convert system messages to user
-        messages and flatten multipart content to plain strings.
+        MiniMax rejects role: system ANYWHERE in the message list.
+        Strip ALL system messages (not just leading ones) and prepend
+        their content to the first user message.
         """
         result: List[Dict[str, Any]] = []
-        system_text = ""
+        system_texts: List[str] = []
 
         for msg in messages:
             role = msg.get("role", "")
             if role == "system":
-                # Collect system content — will prepend to first user message
-                system_text += self._flatten_content(msg.get("content", "")) + chr(10)
+                # Collect ALL system content from ANY position
+                text = self._flatten_content(msg.get("content", ""))
+                if text.strip():
+                    system_texts.append(text.strip())
                 continue
 
             # Flatten multipart content for non-system messages too
@@ -396,19 +399,20 @@ class LLMClient:
                 new_msg["content"] = self._flatten_content(new_msg["content"])
             result.append(new_msg)
 
-        # Prepend system content to first user message
-        if system_text.strip():
+        # Prepend all collected system content to first user message
+        combined_system = chr(10).join(system_texts)
+        if combined_system:
             for i, msg in enumerate(result):
                 if msg.get("role") == "user":
                     user_content = self._flatten_content(msg.get("content", ""))
                     result[i] = {
                         **msg,
-                        "content": system_text.strip() + chr(10)+chr(10)+"---"+chr(10)+chr(10) + user_content,
+                        "content": combined_system + chr(10)+chr(10)+"---"+chr(10)+chr(10) + user_content,
                     }
                     break
             else:
                 # No user message found — insert as user message at position 0
-                result.insert(0, {"role": "user", "content": system_text.strip()})
+                result.insert(0, {"role": "user", "content": combined_system})
 
         return result
 
@@ -426,11 +430,20 @@ class LLMClient:
         # Convert system messages — MiniMax rejects role: system
         mm_messages = self._prep_minimax_messages(messages)
 
+        # Map reasoning_effort to MiniMax thinking effort
+        effort = normalize_reasoning_effort(reasoning_effort)
+        effort_map = {"none": "none", "minimal": "low", "low": "low",
+                      "medium": "medium", "high": "high", "xhigh": "high"}
+        mm_effort = effort_map.get(effort, "medium")
+
         kwargs: Dict[str, Any] = {
             "model": model,
             "messages": mm_messages,
             "max_tokens": max_tokens,
-            "extra_body": {"reasoning_split": True},
+            "extra_body": {
+                "reasoning_split": True,
+                "thinking": {"effort": mm_effort},
+            },
         }
         if tools:
             kwargs["tools"] = tools
