@@ -48,12 +48,16 @@ def _handle_send_message(evt, ctx):
         log_text = evt.get("log_text")
         fmt = str(evt.get("format") or "")
         is_progress = bool(evt.get("is_progress"))
+        reply_to = evt.get("reply_to_message_id")
+        thread_id = evt.get("message_thread_id")
         ctx.send_with_budget(
             int(evt["chat_id"]),
             str(evt.get("text") or ""),
             log_text=(str(log_text) if isinstance(log_text, str) else None),
             fmt=fmt,
             is_progress=is_progress,
+            reply_to_message_id=int(reply_to) if reply_to else None,
+            message_thread_id=int(thread_id) if thread_id else None,
         )
     except Exception as e:
         ctx.append_jsonl(

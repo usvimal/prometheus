@@ -139,7 +139,10 @@ def _get_chat_agent():
     return _chat_agent
 
 
-def handle_chat_direct(chat_id: int, text: str, image_data: Optional[Union[Tuple[str, str], Tuple[str, str, str]]] = None) -> None:
+def handle_chat_direct(chat_id: int, text: str,
+                       image_data: Optional[Union[Tuple[str, str], Tuple[str, str, str]]] = None,
+                       reply_to_message_id: Optional[int] = None,
+                       message_thread_id: Optional[int] = None) -> None:
     try:
         agent = _get_chat_agent()
         task = {
@@ -148,6 +151,8 @@ def handle_chat_direct(chat_id: int, text: str, image_data: Optional[Union[Tuple
             "chat_id": chat_id,
             "text": text,
             "_is_direct_chat": True,
+            "reply_to_message_id": reply_to_message_id,
+            "message_thread_id": message_thread_id,
         }
         if image_data:
             # image_data is (base64, mime) or (base64, mime, caption)

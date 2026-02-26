@@ -251,6 +251,27 @@ def _load_allowed_groups() -> set:
     return groups
 
 
+def _get_group_config(chat_id: int) -> dict:
+    """Get per-group config from state.json. Returns defaults if not configured."""
+    st = load_state()
+    cfg = st.get("group_config", {}).get(str(chat_id), {})
+    return {
+        "policy": cfg.get("policy", "allowlist"),
+        "require_mention": cfg.get("require_mention", True),
+        "allowed_users": set(cfg.get("allowed_users", [])),
+        "history_limit": cfg.get("history_limit", 50),
+    }
+
+
+def _set_group_config(chat_id: int, key: str, value) -> None:
+    """Update a single field in a group's config."""
+    st = load_state()
+    gc = st.setdefault("group_config", {})
+    cfg = gc.setdefault(str(chat_id), {})
+    cfg[key] = value
+    save_state(st)
+
+
 # ----------------------------
 # 5) Bootstrap repo
 # ----------------------------
@@ -538,9 +559,33 @@ def _build_status_text() -> str:
 
 
 def _handle_groups_command(text: str, chat_id: int):
-    """Handle /groups add|remove|list command."""
+    """Handle /groups subcommands: add, remove, info, policy, mention, allow, deny, users, history, help."""
     parts = text.strip().split()
     allowed = _load_allowed_groups()
+
+    # /groups help
+    if len(parts) >= 2 and parts[1].lower() == "help":
+        send_with_budget(chat_id, "\n".join([
+            "👥 /groups commands:",
+            "  /groups — list all groups",
+            "  /groups add <id> — add group to allowlist",
+            "  /groups remove <id> — remove group",
+            "  /groups <id> info — show group config",
+            "  /groups <id> policy open|allowlist|disabled",
+            "  /groups <id> mention on|off",
+            "  /groups <id> allow <user_id> — add allowed user",
+            "  /groups <id> deny <user_id> — remove allowed user",
+            "  /groups <id> users — list allowed users",
+            "  /groups <id> history <N> — set history limit",
+            "",
+            "⚠️ Privacy Mode:",
+            "For 'open' policy without @mentions, the bot must see all messages.",
+            "Either: @BotFather → /setprivacy → Disable (then re-add bot to group)",
+            "Or: Make the bot a group admin.",
+        ]))
+        return
+
+    # /groups add <id>
     if len(parts) >= 3 and parts[1].lower() == "add":
         try:
             gid = int(parts[2])
@@ -552,31 +597,125 @@ def _handle_groups_command(text: str, chat_id: int):
         if gid not in rt_groups:
             rt_groups.append(gid)
         st["allowed_groups"] = rt_groups
+        # Initialize default config for the group
+        gc = st.setdefault("group_config", {})
+        if str(gid) not in gc:
+            gc[str(gid)] = {"policy": "allowlist", "require_mention": True, "allowed_users": [], "history_limit": 50}
         save_state(st)
-        send_with_budget(chat_id, f"✅ Group {gid} added to allowlist.")
-    elif len(parts) >= 3 and parts[1].lower() == "remove":
+        send_with_budget(chat_id, f"✅ Group {gid} added. Use /groups {gid} info to see config.")
+        return
+
+    # /groups remove <id>
+    if len(parts) >= 3 and parts[1].lower() == "remove":
         try:
             gid = int(parts[2])
         except ValueError:
             send_with_budget(chat_id, "❌ Invalid group ID.")
             return
         st = load_state()
-        rt_groups = [g for g in st.get("allowed_groups", []) if int(g) != gid]
-        st["allowed_groups"] = rt_groups
+        st["allowed_groups"] = [g for g in st.get("allowed_groups", []) if int(g) != gid]
+        st.get("group_config", {}).pop(str(gid), None)
         save_state(st)
         ALLOWED_GROUPS_CONFIG.discard(gid)
-        send_with_budget(chat_id, f"✅ Group {gid} removed from allowlist.")
+        send_with_budget(chat_id, f"✅ Group {gid} removed.")
+        return
+
+    # /groups <id> <subcommand> — try to parse parts[1] as group ID
+    if len(parts) >= 3:
+        try:
+            gid = int(parts[1])
+            sub = parts[2].lower()
+        except ValueError:
+            gid = None
+            sub = None
+
+        if gid is not None and gid in allowed:
+            gcfg = _get_group_config(gid)
+
+            if sub == "info":
+                users_str = ", ".join(str(u) for u in sorted(gcfg["allowed_users"])) or "any"
+                send_with_budget(chat_id, "\n".join([
+                    f"👥 Group {gid}:",
+                    f"  Policy: {gcfg['policy']}",
+                    f"  Require mention: {'yes' if gcfg['require_mention'] else 'no'}",
+                    f"  History limit: {gcfg['history_limit']}",
+                    f"  Allowed users: {users_str}",
+                ]))
+                return
+
+            if sub == "policy" and len(parts) >= 4:
+                mode = parts[3].lower()
+                if mode not in ("open", "allowlist", "disabled"):
+                    send_with_budget(chat_id, "❌ Policy must be: open, allowlist, or disabled")
+                    return
+                _set_group_config(gid, "policy", mode)
+                send_with_budget(chat_id, f"✅ Group {gid} policy set to '{mode}'.")
+                return
+
+            if sub == "mention" and len(parts) >= 4:
+                val = parts[3].lower()
+                _set_group_config(gid, "require_mention", val in ("on", "true", "yes", "1"))
+                send_with_budget(chat_id, f"✅ Group {gid} require_mention: {val}")
+                return
+
+            if sub == "allow" and len(parts) >= 4:
+                try:
+                    uid = int(parts[3])
+                except ValueError:
+                    send_with_budget(chat_id, "❌ User ID must be numeric.")
+                    return
+                st = load_state()
+                gc = st.setdefault("group_config", {}).setdefault(str(gid), {})
+                users = list(gc.get("allowed_users", []))
+                if uid not in users:
+                    users.append(uid)
+                gc["allowed_users"] = users
+                save_state(st)
+                send_with_budget(chat_id, f"✅ User {uid} added to group {gid} allowlist.")
+                return
+
+            if sub == "deny" and len(parts) >= 4:
+                try:
+                    uid = int(parts[3])
+                except ValueError:
+                    send_with_budget(chat_id, "❌ User ID must be numeric.")
+                    return
+                st = load_state()
+                gc = st.setdefault("group_config", {}).setdefault(str(gid), {})
+                gc["allowed_users"] = [u for u in gc.get("allowed_users", []) if u != uid]
+                save_state(st)
+                send_with_budget(chat_id, f"✅ User {uid} removed from group {gid} allowlist.")
+                return
+
+            if sub == "users":
+                users_str = ", ".join(str(u) for u in sorted(gcfg["allowed_users"])) or "(empty — all users allowed)"
+                send_with_budget(chat_id, f"👥 Group {gid} allowed users:\n{users_str}")
+                return
+
+            if sub == "history" and len(parts) >= 4:
+                try:
+                    limit = max(0, int(parts[3]))
+                except ValueError:
+                    send_with_budget(chat_id, "❌ History limit must be a number.")
+                    return
+                _set_group_config(gid, "history_limit", limit)
+                send_with_budget(chat_id, f"✅ Group {gid} history limit set to {limit}.")
+                return
+
+            send_with_budget(chat_id, f"❌ Unknown subcommand '{sub}'. Use /groups help")
+            return
+
+    # /groups (bare) — list all groups with config summary
+    if not allowed:
+        send_with_budget(chat_id, "👥 No groups configured.\n\nUse /groups add <chat_id> or /groups help")
     else:
-        if not allowed:
-            send_with_budget(chat_id, "👥 No groups configured.\n\nUse /groups add <chat_id> to allow a group.")
-        else:
-            lines = ["👥 Allowed groups:"]
-            for gid in sorted(allowed):
-                source = "config" if gid in ALLOWED_GROUPS_CONFIG else "runtime"
-                lines.append(f"  {gid} ({source})")
-            lines.append(f"\nTotal: {len(allowed)}")
-            lines.append("Use /groups add <id> or /groups remove <id>")
-            send_with_budget(chat_id, "\n".join(lines))
+        lines = ["👥 Allowed groups:"]
+        for gid in sorted(allowed):
+            gcfg = _get_group_config(gid)
+            source = "config" if gid in ALLOWED_GROUPS_CONFIG else "runtime"
+            lines.append(f"  {gid} ({source}) — {gcfg['policy']}, mention={'on' if gcfg['require_mention'] else 'off'}")
+        lines.append(f"\nTotal: {len(allowed)}. Use /groups <id> info or /groups help")
+        send_with_budget(chat_id, "\n".join(lines))
 
 
 def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
@@ -740,7 +879,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
             "  /queue — task queue",
             "  /budget — spending info",
             "  /workers — worker pool",
-            "  /groups [add|remove <id>] — manage group allowlist",
+            "  /groups [help|add|remove|<id> ...] — group config",
             "  /evolve [start|stop] — evolution mode",
             "  /bg [start|stop] — background consciousness",
             "  /review — queue a code review",
@@ -817,61 +956,55 @@ def handle_one_update(offset: int) -> int:
             is_owner = True
             send_with_budget(chat_id, "👋 Hello! I've been expecting you.")
 
-        # Group handling: allow groups but only respond to @mentions or replies
+        # Group handling with policy-based access control
         is_group = chat_type in ('group', 'supergroup', 'channel')
+        msg_id = msg.get("message_id")
+        thread_id = msg.get("message_thread_id")  # forum topic thread
 
         if not is_owner and not is_group:
             log.debug("Ignoring message from non-owner %s in private chat", user_id)
             continue
 
-        # Group allowlist check
+        # Group allowlist + policy check
+        bot_username = TG.get_bot_username()
         if is_group:
             allowed = _load_allowed_groups()
-            if not allowed:
-                log.debug("No groups configured — ignoring group message from %s", chat_id)
-                continue
-            if chat_id not in allowed:
+            if not allowed or chat_id not in allowed:
                 log.debug("Group %s not in allowlist — ignoring", chat_id)
                 continue
-
-        # In groups, only respond if:
-        # 1. Message is a reply to the bot's message
-        # 2. Message contains @mention of the bot
-        # 3. Owner is sending the message
-        bot_username = TG.get_bot_username()
-        if is_group and not is_owner:
-            # Check if this is a reply to the bot (match THIS bot specifically)
+            gcfg = _get_group_config(chat_id)
+            if gcfg["policy"] == "disabled":
+                continue
+            # Per-user allowlist (owner always passes)
+            if gcfg["policy"] == "allowlist" and not is_owner:
+                if gcfg["allowed_users"] and user_id not in gcfg["allowed_users"]:
+                    log.debug("User %s not in group %s allowlist", user_id, chat_id)
+                    continue
+            # Mention/reply-to-bot detection
             reply_to = msg.get('reply_to_message')
             is_reply_to_bot = False
-            if reply_to:
+            if reply_to and bot_username:
                 reply_from = reply_to.get('from', {})
-                if bot_username and reply_from.get('username', '').lower() == bot_username.lower():
+                if reply_from.get('username', '').lower() == bot_username.lower():
                     is_reply_to_bot = True
-
-            # Check for @mention of bot
             has_mention = False
             if bot_username and text:
                 has_mention = f'@{bot_username.lower()}' in text.lower()
-
-            # Also check entities for mentions
-            entities = msg.get('entities', [])
-            for entity in entities:
-                if entity.get('type') == 'mention':
-                    ent_offset = entity.get('offset', 0)
-                    length = entity.get('length', 0)
-                    mention_text = text[ent_offset:ent_offset + length] if text else ''
-                    if bot_username and mention_text.lower() == f'@{bot_username.lower()}':
-                        has_mention = True
-                        break
-
-            if not (is_reply_to_bot or has_mention):
-                log.debug("Ignoring group message without mention or reply from %s", user_id)
-                continue
-
-        # Strip the @mention from text before processing (applies to all group msgs)
-        if is_group and bot_username:
-            text = text.replace(f'@{bot_username}', '').replace(f'@{bot_username.lower()}', '').strip()
-            text = ' '.join(text.split())
+                for entity in msg.get('entities', []):
+                    if entity.get('type') == 'mention':
+                        eo = entity.get('offset', 0)
+                        el = entity.get('length', 0)
+                        if text[eo:eo + el].lower() == f'@{bot_username.lower()}':
+                            has_mention = True
+                            break
+            # Require mention check (skip for owner, skip if policy=open or require_mention=false)
+            if not is_owner and gcfg["require_mention"] and gcfg["policy"] != "open":
+                if not (is_reply_to_bot or has_mention):
+                    continue
+            # Strip @mention from text
+            if bot_username:
+                text = text.replace(f'@{bot_username}', '').replace(f'@{bot_username.lower()}', '').strip()
+                text = ' '.join(text.split())
 
         # Check for /login redirect
         if text.startswith("http"):
@@ -928,9 +1061,12 @@ def handle_one_update(offset: int) -> int:
             text = f"[From {display} in group] {text}"
 
         # Enqueue chat task in a thread so main loop can drain events
+        # Pass reply_to_message_id (for reply threading) and message_thread_id (for forum topics)
+        _reply_to = msg_id if is_group else None
+        _thread = thread_id if is_group else None
         threading.Thread(
             target=handle_chat_direct,
-            args=(chat_id, text, image_data),
+            args=(chat_id, text, image_data, _reply_to, _thread),
             daemon=True,
         ).start()
 

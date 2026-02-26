@@ -13,7 +13,7 @@ import pathlib
 import time
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -266,6 +266,126 @@ def get_evolution_stats(limit: int = 20):
         "success_rate_pct": success_rate,
         "recent_cycles": recent[:limit],
     }
+
+
+# ----- Group Management API -----
+
+def _load_full_state() -> Dict[str, Any]:
+    """Load full state.json for group config operations."""
+    state_path = DATA_DIR / "state" / "state.json"
+    if not state_path.exists():
+        return {}
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_full_state(st: Dict[str, Any]) -> None:
+    """Atomic write state.json."""
+    state_path = DATA_DIR / "state" / "state.json"
+    tmp = state_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(st, indent=2), encoding="utf-8")
+    import os as _os
+    _os.replace(str(tmp), str(state_path))
+
+
+@app.get("/api/groups")
+def get_groups():
+    """List all allowed groups with their config."""
+    st = _load_full_state()
+    allowed = list(st.get("allowed_groups", []))
+    group_config = st.get("group_config", {})
+    groups = []
+    for gid in allowed:
+        cfg = group_config.get(str(gid), {})
+        groups.append({
+            "id": gid,
+            "config": {
+                "policy": cfg.get("policy", "allowlist"),
+                "require_mention": cfg.get("require_mention", True),
+                "allowed_users": cfg.get("allowed_users", []),
+                "history_limit": cfg.get("history_limit", 50),
+            }
+        })
+    return {"groups": groups}
+
+
+@app.post("/api/groups")
+async def post_groups(request: Request):
+    """Manage groups: add, remove, update config, add/remove users."""
+    body = await request.json()
+    action = body.get("action")
+    gid = body.get("group_id")
+
+    if not action:
+        raise HTTPException(400, "Missing 'action'")
+
+    st = _load_full_state()
+
+    if action == "add":
+        if not gid:
+            raise HTTPException(400, "Missing 'group_id'")
+        gid = int(gid)
+        rt_groups = list(st.get("allowed_groups", []))
+        if gid not in rt_groups:
+            rt_groups.append(gid)
+        st["allowed_groups"] = rt_groups
+        gc = st.setdefault("group_config", {})
+        if str(gid) not in gc:
+            gc[str(gid)] = {"policy": "allowlist", "require_mention": True, "allowed_users": [], "history_limit": 50}
+        _save_full_state(st)
+        return {"ok": True, "message": f"Group {gid} added"}
+
+    if action == "remove":
+        if not gid:
+            raise HTTPException(400, "Missing 'group_id'")
+        gid = int(gid)
+        st["allowed_groups"] = [g for g in st.get("allowed_groups", []) if int(g) != gid]
+        st.get("group_config", {}).pop(str(gid), None)
+        _save_full_state(st)
+        return {"ok": True, "message": f"Group {gid} removed"}
+
+    if action == "update":
+        if not gid:
+            raise HTTPException(400, "Missing 'group_id'")
+        gid = int(gid)
+        config = body.get("config", {})
+        gc = st.setdefault("group_config", {}).setdefault(str(gid), {})
+        for k in ("policy", "require_mention", "history_limit"):
+            if k in config:
+                gc[k] = config[k]
+        _save_full_state(st)
+        return {"ok": True, "message": f"Group {gid} config updated"}
+
+    if action == "add_user":
+        if not gid:
+            raise HTTPException(400, "Missing 'group_id'")
+        uid = body.get("user_id")
+        if not uid:
+            raise HTTPException(400, "Missing 'user_id'")
+        gid, uid = int(gid), int(uid)
+        gc = st.setdefault("group_config", {}).setdefault(str(gid), {})
+        users = list(gc.get("allowed_users", []))
+        if uid not in users:
+            users.append(uid)
+        gc["allowed_users"] = users
+        _save_full_state(st)
+        return {"ok": True, "message": f"User {uid} added to group {gid}"}
+
+    if action == "remove_user":
+        if not gid:
+            raise HTTPException(400, "Missing 'group_id'")
+        uid = body.get("user_id")
+        if not uid:
+            raise HTTPException(400, "Missing 'user_id'")
+        gid, uid = int(gid), int(uid)
+        gc = st.setdefault("group_config", {}).setdefault(str(gid), {})
+        gc["allowed_users"] = [u for u in gc.get("allowed_users", []) if u != uid]
+        _save_full_state(st)
+        return {"ok": True, "message": f"User {uid} removed from group {gid}"}
+
+    raise HTTPException(400, f"Unknown action: {action}")
 
 
 # ----- Static files / Dashboard UI -----
