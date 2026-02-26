@@ -592,9 +592,10 @@ def handle_one_update(offset: int) -> int:
                     send_with_budget(chat_id, f"❌ Auth failed: {e}")
                 continue
 
-        # Log chat
+        # Log chat (incoming message from owner)
         try:
-            log_chat(chat_id, from_user, text, image_data)
+            msg_text = text or caption or "(image)"
+            log_chat("in", chat_id, user_id, msg_text)
         except Exception:
             log.exception("log_chat failed")
 

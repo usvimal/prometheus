@@ -420,14 +420,35 @@ def budget_line(force: bool = False) -> str:
         return ""
 
 
+# Dedup guard for log_chat: prevent storm (100x same message in seconds)
+_chat_log_dedup: dict = {}  # (direction, text_hash) -> last_timestamp
+_CHAT_DEDUP_WINDOW_SEC = 5.0
+
+
 def log_chat(direction: str, chat_id: int, user_id: int, text: str) -> None:
+    import time as _time
+    import hashlib as _hashlib
+    # Dedup: skip if same (direction, text) logged within window
+    text_str = str(text or "")[:200]
+    dedup_key = (direction, _hashlib.md5(text_str.encode()).hexdigest())
+    now = _time.time()
+    last_ts = _chat_log_dedup.get(dedup_key, 0)
+    if now - last_ts < _CHAT_DEDUP_WINDOW_SEC:
+        return  # Skip duplicate
+    _chat_log_dedup[dedup_key] = now
+    # Prune old entries (keep last 50)
+    if len(_chat_log_dedup) > 100:
+        sorted_keys = sorted(_chat_log_dedup, key=_chat_log_dedup.get)
+        for k in sorted_keys[:50]:
+            _chat_log_dedup.pop(k, None)
+
     append_jsonl(DRIVE_ROOT / "logs" / "chat.jsonl", {
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "session_id": load_state().get("session_id"),
         "direction": direction,
         "chat_id": chat_id,
         "user_id": user_id,
-        "text": text,
+        "text": text_str,
     })
 
 

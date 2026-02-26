@@ -450,6 +450,22 @@ class LLMClient:
         usage = resp_dict.get("usage") or {}
         choices = resp_dict.get("choices") or [{}]
         msg = (choices[0] if choices else {}).get("message") or {}
+
+        # Extract cached_tokens from prompt_tokens_details (MiniMax auto-caching)
+        # Without this, cached_tokens is always 0 even when MiniMax IS caching.
+        if not usage.get("cached_tokens"):
+            prompt_details = usage.get("prompt_tokens_details") or {}
+            if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens"):
+                usage["cached_tokens"] = int(prompt_details["cached_tokens"])
+        # Also extract cache_write_tokens if present
+        if not usage.get("cache_write_tokens"):
+            prompt_details_w = usage.get("prompt_tokens_details") or {}
+            if isinstance(prompt_details_w, dict):
+                cw = (prompt_details_w.get("cache_write_tokens")
+                      or prompt_details_w.get("cache_creation_tokens"))
+                if cw:
+                    usage["cache_write_tokens"] = int(cw)
+
         return msg, usage
 
     def vision_query(
