@@ -116,6 +116,18 @@ MODEL_MAIN = get_cfg("PROMETHEUS_MODEL", default="codex-mini")
 MODEL_CODE = get_cfg("PROMETHEUS_MODEL_CODE", default="codex-mini")
 MODEL_LIGHT = get_cfg("PROMETHEUS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL)
 
+# Telegram group allowlist (comma-separated group chat IDs)
+_raw_groups = get_cfg("TELEGRAM_ALLOWED_GROUPS", default="")
+ALLOWED_GROUPS_CONFIG: set = set()
+if _raw_groups:
+    for _g in str(_raw_groups).split(","):
+        _g = _g.strip()
+        if _g:
+            try:
+                ALLOWED_GROUPS_CONFIG.add(int(_g))
+            except ValueError:
+                log.warning("Invalid group ID in TELEGRAM_ALLOWED_GROUPS: %s", _g)
+
 BUDGET_REPORT_EVERY_MESSAGES = 10
 SOFT_TIMEOUT_SEC = max(60, int(get_cfg("PROMETHEUS_SOFT_TIMEOUT_SEC", default="600") or "600"))
 HARD_TIMEOUT_SEC = max(120, int(get_cfg("PROMETHEUS_HARD_TIMEOUT_SEC", default="1800") or "1800"))
@@ -225,6 +237,19 @@ workers_init(
 )
 
 from supervisor.events import dispatch_event
+
+
+def _load_allowed_groups() -> set:
+    """Get current allowed groups: config + state.json runtime additions."""
+    groups = set(ALLOWED_GROUPS_CONFIG)
+    st = load_state()
+    for gid in st.get("allowed_groups", []):
+        try:
+            groups.add(int(gid))
+        except (ValueError, TypeError):
+            pass
+    return groups
+
 
 # ----------------------------
 # 5) Bootstrap repo
@@ -512,6 +537,48 @@ def _build_status_text() -> str:
     ])
 
 
+def _handle_groups_command(text: str, chat_id: int):
+    """Handle /groups add|remove|list command."""
+    parts = text.strip().split()
+    allowed = _load_allowed_groups()
+    if len(parts) >= 3 and parts[1].lower() == "add":
+        try:
+            gid = int(parts[2])
+        except ValueError:
+            send_with_budget(chat_id, "❌ Invalid group ID. Use numeric chat ID (e.g. -1001234567890)")
+            return
+        st = load_state()
+        rt_groups = list(st.get("allowed_groups", []))
+        if gid not in rt_groups:
+            rt_groups.append(gid)
+        st["allowed_groups"] = rt_groups
+        save_state(st)
+        send_with_budget(chat_id, f"✅ Group {gid} added to allowlist.")
+    elif len(parts) >= 3 and parts[1].lower() == "remove":
+        try:
+            gid = int(parts[2])
+        except ValueError:
+            send_with_budget(chat_id, "❌ Invalid group ID.")
+            return
+        st = load_state()
+        rt_groups = [g for g in st.get("allowed_groups", []) if int(g) != gid]
+        st["allowed_groups"] = rt_groups
+        save_state(st)
+        ALLOWED_GROUPS_CONFIG.discard(gid)
+        send_with_budget(chat_id, f"✅ Group {gid} removed from allowlist.")
+    else:
+        if not allowed:
+            send_with_budget(chat_id, "👥 No groups configured.\n\nUse /groups add <chat_id> to allow a group.")
+        else:
+            lines = ["👥 Allowed groups:"]
+            for gid in sorted(allowed):
+                source = "config" if gid in ALLOWED_GROUPS_CONFIG else "runtime"
+                lines.append(f"  {gid} ({source})")
+            lines.append(f"\nTotal: {len(allowed)}")
+            lines.append("Use /groups add <id> or /groups remove <id>")
+            send_with_budget(chat_id, "\n".join(lines))
+
+
 def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     """Handle supervisor slash-commands.
 
@@ -662,6 +729,10 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
                 send_with_budget(chat_id, "📊 Dashboard: off. Use /dashboard on to start.")
         return True
 
+    if lowered.startswith("/groups"):
+        _handle_groups_command(text, chat_id)
+        return True
+
     if lowered.startswith("/help"):
         lines = [
             "📖 Commands:",
@@ -669,10 +740,11 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
             "  /queue — task queue",
             "  /budget — spending info",
             "  /workers — worker pool",
+            "  /groups [add|remove <id>] — manage group allowlist",
             "  /evolve [start|stop] — evolution mode",
             "  /bg [start|stop] — background consciousness",
             "  /review — queue a code review",
-            "  /dashboard — web dashboard URL",
+            "  /dashboard [on|off] — web dashboard",
             "  /login — Codex OAuth flow",
             "  /restart — soft restart",
             "  /panic — emergency stop",
@@ -747,50 +819,59 @@ def handle_one_update(offset: int) -> int:
 
         # Group handling: allow groups but only respond to @mentions or replies
         is_group = chat_type in ('group', 'supergroup', 'channel')
-        
+
         if not is_owner and not is_group:
             log.debug("Ignoring message from non-owner %s in private chat", user_id)
             continue
-            
+
+        # Group allowlist check
+        if is_group:
+            allowed = _load_allowed_groups()
+            if not allowed:
+                log.debug("No groups configured — ignoring group message from %s", chat_id)
+                continue
+            if chat_id not in allowed:
+                log.debug("Group %s not in allowlist — ignoring", chat_id)
+                continue
+
         # In groups, only respond if:
         # 1. Message is a reply to the bot's message
         # 2. Message contains @mention of the bot
         # 3. Owner is sending the message
+        bot_username = TG.get_bot_username()
         if is_group and not is_owner:
-            # Check if this is a reply to the bot
+            # Check if this is a reply to the bot (match THIS bot specifically)
             reply_to = msg.get('reply_to_message')
             is_reply_to_bot = False
             if reply_to:
                 reply_from = reply_to.get('from', {})
-                if reply_from.get('is_bot') and reply_from.get('username', '').lower().endswith('bot'):
+                if bot_username and reply_from.get('username', '').lower() == bot_username.lower():
                     is_reply_to_bot = True
-            
+
             # Check for @mention of bot
-            bot_username = TG.get_bot_username()
             has_mention = False
             if bot_username and text:
-                has_mention = f'@{bot_username}' in text or f'@{bot_username.lower()}' in text.lower()
-            
+                has_mention = f'@{bot_username.lower()}' in text.lower()
+
             # Also check entities for mentions
             entities = msg.get('entities', [])
             for entity in entities:
                 if entity.get('type') == 'mention':
-                    offset = entity.get('offset', 0)
+                    ent_offset = entity.get('offset', 0)
                     length = entity.get('length', 0)
-                    mention_text = text[offset:offset+length] if text else ''
+                    mention_text = text[ent_offset:ent_offset + length] if text else ''
                     if bot_username and mention_text.lower() == f'@{bot_username.lower()}':
                         has_mention = True
                         break
-            
+
             if not (is_reply_to_bot or has_mention):
                 log.debug("Ignoring group message without mention or reply from %s", user_id)
                 continue
-            
-            # Strip the @mention from text before processing
-            if has_mention and bot_username:
-                text = text.replace(f'@{bot_username}', '').replace(f'@{bot_username.lower()}', '').strip()
-                # Clean up extra spaces
-                text = ' '.join(text.split())
+
+        # Strip the @mention from text before processing (applies to all group msgs)
+        if is_group and bot_username:
+            text = text.replace(f'@{bot_username}', '').replace(f'@{bot_username.lower()}', '').strip()
+            text = ' '.join(text.split())
 
         # Check for /login redirect
         if text.startswith("http"):
@@ -838,6 +919,13 @@ def handle_one_update(offset: int) -> int:
 
         # Update timestamp
         _last_message_ts = time.time()
+
+        # For group messages from non-owner, prepend user context
+        if is_group and not is_owner:
+            username = from_user.get('username', '')
+            first_name = from_user.get('first_name', '')
+            display = f"@{username}" if username else first_name or f"user:{user_id}"
+            text = f"[From {display} in group] {text}"
 
         # Enqueue chat task in a thread so main loop can drain events
         threading.Thread(
