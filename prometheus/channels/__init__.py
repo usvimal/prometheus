@@ -1,28 +1,89 @@
 """
-Prometheus Channels — Enhanced Telegram integration.
+Enhanced Telegram channel architecture.
 
-Structured message types, middleware pattern, webhook support,
+Provides structured message types, middleware pattern, webhook support,
 and conversational state management.
+
+Inspired by OpenClaw's channel architecture.
 """
 
-from .message_types import Message, TextMessage, CommandMessage, PhotoMessage, CallbackMessage
-from .middleware import Middleware, MiddlewareRegistry
-from .state import ConversationState, StateManager
-from .telegram_enhanced import EnhancedTelegramChannel
+from .message_types import (
+    MessageType,
+    Message,
+    TextMessage,
+    CommandMessage,
+    PhotoMessage,
+    DocumentMessage,
+    AudioMessage,
+    VideoMessage,
+    LocationMessage,
+    ContactMessage,
+    CallbackMessage,
+    Chat,
+    User,
+)
+
+from .middleware import (
+    Middleware,
+    MiddlewareContext,
+    MiddlewareRegistry,
+    LoggingMiddleware,
+    RateLimitMiddleware,
+    AuthMiddleware,
+    CommandRouterMiddleware,
+    MetricsMiddleware,
+)
+
+from .state import (
+    ConversationState,
+    ConversationContext,
+    StateBackend,
+    MemoryStateBackend,
+    RedisStateBackend,
+    StateManager,
+)
+
+from .telegram_enhanced import (
+    WebhookConfig,
+    TelegramConfig,
+    EnhancedTelegramChannel,
+    create_channel,
+)
 
 __all__ = [
     # Message types
+    "MessageType",
     "Message",
-    "TextMessage", 
+    "TextMessage",
     "CommandMessage",
     "PhotoMessage",
+    "DocumentMessage",
+    "AudioMessage",
+    "VideoMessage",
+    "LocationMessage",
+    "ContactMessage",
     "CallbackMessage",
+    "Chat",
+    "User",
     # Middleware
     "Middleware",
+    "MiddlewareContext",
     "MiddlewareRegistry",
+    "LoggingMiddleware",
+    "RateLimitMiddleware",
+    "AuthMiddleware",
+    "CommandRouterMiddleware",
+    "MetricsMiddleware",
     # State
     "ConversationState",
+    "ConversationContext",
+    "StateBackend",
+    "MemoryStateBackend",
+    "RedisStateBackend",
     "StateManager",
     # Channel
+    "WebhookConfig",
+    "TelegramConfig",
     "EnhancedTelegramChannel",
+    "create_channel",
 ]
