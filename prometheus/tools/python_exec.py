@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import multiprocessing
 import os
 import sys
 import traceback
@@ -18,23 +19,11 @@ from prometheus.utils import utc_now_iso
 log = logging.getLogger(__name__)
 
 
-def _python_exec(ctx: ToolContext, code: str, timeout_sec: int = 60) -> str:
-    """Execute Python code directly and return structured results.
+def _execute_code_worker(code: str, result_queue: multiprocessing.Queue) -> None:
+    """Worker function that runs in a separate process to execute code.
     
-    Args:
-        code: Python code to execute
-        timeout_sec: Maximum execution time in seconds (default 60)
-    
-    Returns:
-        JSON string with execution results including stdout, stderr, 
-        return value, and any exceptions.
+    This allows us to truly enforce timeouts by killing the process if needed.
     """
-    if not code or not code.strip():
-        return json.dumps({
-            "success": False,
-            "error": "No code provided",
-        }, ensure_ascii=False, indent=2)
-    
     # Create a sandboxed-like environment
     sandbox_globals = {
         "__name__": "__main__",
@@ -100,7 +89,75 @@ def _python_exec(ctx: ToolContext, code: str, timeout_sec: int = 60) -> str:
     if len(response.get("stderr", "")) > max_len:
         response["stderr"] = response["stderr"][:max_len] + "\n...(truncated)..."
     
-    return json.dumps(response, ensure_ascii=False, indent=2)
+    result_queue.put(response)
+
+
+def _python_exec(ctx: ToolContext, code: str, timeout_sec: int = 60) -> str:
+    """Execute Python code directly and return structured results.
+    
+    Args:
+        code: Python code to execute
+        timeout_sec: Maximum execution time in seconds (default 60)
+    
+    Returns:
+        JSON string with execution results including stdout, stderr, 
+        return value, and any exceptions.
+    """
+    if not code or not code.strip():
+        return json.dumps({
+            "success": False,
+            "error": "No code provided",
+        }, ensure_ascii=False, indent=2)
+    
+    # Use multiprocessing to enforce timeout
+    result_queue = multiprocessing.Queue()
+    process = multiprocessing.Process(
+        target=_execute_code_worker,
+        args=(code, result_queue)
+    )
+    
+    try:
+        process.start()
+        process.join(timeout=timeout_sec)
+        
+        if process.is_alive():
+            # Timeout occurred - terminate the process
+            process.terminate()
+            process.join(timeout=1)  # Wait a bit for graceful termination
+            if process.is_alive():
+                process.kill()  # Force kill if still alive
+                process.join()
+            
+            return json.dumps({
+                "success": False,
+                "error": f"Code execution timed out after {timeout_sec} seconds",
+                "stdout": "",
+                "stderr": "",
+            }, ensure_ascii=False, indent=2)
+        
+        # Process finished - get result
+        if not result_queue.empty():
+            response = result_queue.get()
+        else:
+            response = {
+                "success": False,
+                "error": "No result from execution",
+                "stdout": "",
+                "stderr": "",
+            }
+        
+        return json.dumps(response, ensure_ascii=False, indent=2)
+        
+    except Exception as e:
+        if process.is_alive():
+            process.terminate()
+            process.join()
+        return json.dumps({
+            "success": False,
+            "error": f"Execution failed: {type(e).__name__}: {e}",
+            "stdout": "",
+            "stderr": "",
+        }, ensure_ascii=False, indent=2)
 
 
 def get_tools() -> list[ToolEntry]:
