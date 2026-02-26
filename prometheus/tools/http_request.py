@@ -2,31 +2,12 @@
 import json
 import urllib.request
 import urllib.error
-from typing import Any
+from typing import Any, List
+
+from prometheus.tools.registry import ToolContext, ToolEntry
 
 
-def get_tools():
-    """Return list of tool definitions."""
-    return [
-        {
-            "name": "http_request",
-            "description": "Make HTTP requests to external APIs. Supports GET, POST, PUT, DELETE methods. Returns JSON response parsed or raw text.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "The URL to request"},
-                    "method": {"type": "string", "description": "HTTP method (GET, POST, PUT, DELETE)", "enum": ["GET", "POST", "PUT", "DELETE"], "default": "GET"},
-                    "headers": {"type": "object", "description": "HTTP headers as key-value pairs", "default": {}},
-                    "body": {"type": "object", "description": "JSON body for POST/PUT requests", "default": None},
-                    "timeout": {"type": "integer", "description": "Request timeout in seconds", "default": 30}
-                },
-                "required": ["url"]
-            }
-        }
-    ]
-
-
-def http_request(url: str, method: str = "GET", headers: dict = None, body: Any = None, timeout: int = 30) -> str:
+def _http_request(ctx: ToolContext, url: str, method: str = "GET", headers: dict = None, body: Any = None, timeout: int = 30) -> str:
     """Make an HTTP request to an external URL."""
     if headers is None:
         headers = {}
@@ -70,12 +51,21 @@ def http_request(url: str, method: str = "GET", headers: dict = None, body: Any 
         return f"⚠️ Error: {type(e).__name__}: {str(e)}"
 
 
-# Tool executor mapping
-EXECUTORS = {
-    "http_request": http_request,
-}
-
-
-if __name__ == "__main__":
-    # Test
-    print(http_request("https://httpbin.org/get"))
+def get_tools() -> List[ToolEntry]:
+    return [
+        ToolEntry("http_request", {
+            "name": "http_request",
+            "description": "Make HTTP requests to external APIs. Supports GET, POST, PUT, DELETE methods. Returns JSON response parsed or raw text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to request"},
+                    "method": {"type": "string", "description": "HTTP method (GET, POST, PUT, DELETE)", "enum": ["GET", "POST", "PUT", "DELETE"], "default": "GET"},
+                    "headers": {"type": "object", "description": "HTTP headers as key-value pairs", "default": {}},
+                    "body": {"type": "object", "description": "JSON body for POST/PUT requests", "default": None},
+                    "timeout": {"type": "integer", "description": "Request timeout in seconds", "default": 30}
+                },
+                "required": ["url"]
+            }
+        }, _http_request),
+    ]
