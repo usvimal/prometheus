@@ -29,6 +29,20 @@ log = logging.getLogger(__name__)
 _REFLECTION_PROMPT = "REFLECTION: The last {count} tool calls errored. Think: 1) What went wrong? 2) Right tool? 3) Correct args? 4) Different approach? Explain reasoning, then try ONE corrected action."
 _MAX_CONSECUTIVE_ERRORS = 3
 
+_consecutive_errors = 0
+
+def _maybe_inject_reflection(error_count, messages, emit_progress):
+    global _consecutive_errors
+    if error_count > 0:
+        _consecutive_errors += error_count
+    else:
+        _consecutive_errors = 0
+    if _consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+        messages.append({"role": "user", "content": _REFLECTION_PROMPT.format(count=_consecutive_errors)})
+        emit_progress("Reflecting on repeated errors...")
+        _consecutive_errors = 0
+
+
 # Pricing from OpenRouter API (2026-02-17). Update periodically via /api/v1/models.
 _MODEL_PRICING_STATIC = {
     "anthropic/claude-opus-4.6": (5.0, 0.5, 25.0),
