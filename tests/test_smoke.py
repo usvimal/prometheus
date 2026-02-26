@@ -132,6 +132,8 @@ EXPECTED_TOOLS = [
     "mcp_connect", "mcp_disconnect", "mcp_list",
     "mcp_list_tools", "mcp_call",
     "mcp_list_resources", "mcp_read_resource",
+    # File watcher (v6.6.0)
+    "watch_start", "watch_check", "watch_stop", "watch_list",
 ]
 
 
