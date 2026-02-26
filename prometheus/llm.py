@@ -175,6 +175,59 @@ def fetch_minimax_quota(force: bool = False) -> Optional[Dict[str, Any]]:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Kimi Code 5-hour window usage tracking
+# ---------------------------------------------------------------------------
+_KIMI_WINDOW_SEC: float = 5 * 3600  # 5-hour rolling window
+_kimi_window: Dict[str, Any] = {
+    "start": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "calls": 0,
+}
+
+
+def _track_kimi_usage(usage: Dict[str, Any]) -> None:
+    """Track Kimi token usage in current 5-hour window."""
+    now = time.time()
+    if now - _kimi_window["start"] > _KIMI_WINDOW_SEC:
+        # Window expired, reset
+        _kimi_window["start"] = now
+        _kimi_window["input_tokens"] = 0
+        _kimi_window["output_tokens"] = 0
+        _kimi_window["cache_read_tokens"] = 0
+        _kimi_window["cache_write_tokens"] = 0
+        _kimi_window["calls"] = 0
+    _kimi_window["input_tokens"] += int(usage.get("prompt_tokens") or 0)
+    _kimi_window["output_tokens"] += int(usage.get("completion_tokens") or 0)
+    _kimi_window["cache_read_tokens"] += int(usage.get("cached_tokens") or 0)
+    _kimi_window["cache_write_tokens"] += int(usage.get("cache_write_tokens") or 0)
+    _kimi_window["calls"] += 1
+
+
+def get_kimi_usage() -> Dict[str, Any]:
+    """Return current Kimi 5-hour window usage for /status display."""
+    now = time.time()
+    if now - _kimi_window["start"] > _KIMI_WINDOW_SEC:
+        return {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+                "cache_read_tokens": 0, "cache_write_tokens": 0,
+                "window_remaining_sec": int(_KIMI_WINDOW_SEC),
+                "window_elapsed_sec": 0}
+    elapsed = int(now - _kimi_window["start"])
+    remaining = int(_KIMI_WINDOW_SEC - elapsed)
+    return {
+        "calls": _kimi_window["calls"],
+        "input_tokens": _kimi_window["input_tokens"],
+        "output_tokens": _kimi_window["output_tokens"],
+        "cache_read_tokens": _kimi_window["cache_read_tokens"],
+        "cache_write_tokens": _kimi_window["cache_write_tokens"],
+        "window_remaining_sec": max(0, remaining),
+        "window_elapsed_sec": elapsed,
+    }
+
+
 class LLMClient:
     """Tri-backend LLM client: Codex + MiniMax + OpenRouter."""
 
@@ -552,6 +605,7 @@ class LLMClient:
             "cache_write_tokens": usage_data.get("cache_creation_input_tokens", 0),
         }
 
+        _track_kimi_usage(usage)
         return msg_out, usage
 
     @staticmethod

@@ -48,7 +48,7 @@ if _CONFIG_FILE.exists():
 # 0.1) provide apply_patch shim
 # ----------------------------
 from prometheus.apply_patch import install as install_apply_patch
-from prometheus.llm import DEFAULT_LIGHT_MODEL
+from prometheus.llm import DEFAULT_LIGHT_MODEL, get_kimi_usage
 install_apply_patch()
 
 
@@ -502,11 +502,22 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         model_primary = MODEL_MAIN or "?"
         model_fallback = MODEL_LIGHT or "?"
 
+        # Kimi 5h window usage
+        kimi = get_kimi_usage()
+        kimi_remaining = kimi["window_remaining_sec"]
+        if kimi["calls"] > 0:
+            kh, km = divmod(kimi_remaining, 3600)
+            kimi_time = f"{kh}h {km // 60}m left"
+            kimi_total = kimi["input_tokens"] + kimi["output_tokens"]
+            kimi_line = f"\U0001f4a0 Kimi (5h): {_fmt_tokens(kimi_total)} tokens \u00b7 {kimi['calls']} calls \u00b7 {kimi_time}"
+        else:
+            kimi_line = f"\U0001f4a0 Kimi (5h): idle"
+
         lines = [
             f"\U0001f525 Prometheus {version} ({sha})",
             f"\U0001f9e0 Model: {model_primary} \u00b7 Fallback: {model_fallback}",
             f"\U0001f9ee Tokens: {_fmt_tokens(prompt_tok)} in / {_fmt_tokens(comp_tok)} out \u00b7 {calls} calls",
-            f"\U0001f4ca Budget: ${st.get('spent_usd', 0):.2f} / ${TOTAL_BUDGET_LIMIT:.2f}",
+            kimi_line,
             f"\U0001f9f5 Queue: {pending_count} pending \u00b7 {running_count} running \u00b7 {len(WORKERS)} workers",
             f"\U00002699\ufe0f Evo: {'cycle ' + str(evo_cycle) if evo_enabled else 'off'} \u00b7 BG: {bg_status} \u00b7 Up: {uptime_str}",
         ]
