@@ -196,7 +196,6 @@ def _git_push_with_tests(ctx: ToolContext) -> Optional[str]:
         run_cmd(["git", "pull", "--rebase", "origin", ctx.branch_dev], cwd=ctx.repo_dir)
     except Exception:
         log.debug(f"Failed to pull --rebase before push", exc_info=True)
-        pass
 
     try:
         run_cmd(["git", "push", "origin", ctx.branch_dev], cwd=ctx.repo_dir)
