@@ -190,10 +190,32 @@ class GroupMiddleware:
     Integrates with the enhanced Telegram channel.
     """
     
-    def __init__(self, bot_username: str):
+    def __init__(self, bot_username: str, channel: Optional[Any] = None):
         self.handler = GroupMessageHandler(bot_username)
         self.router = GroupCommandRouter(bot_username)
         self.bot_user: Optional[User] = None
+        self.channel = channel
+    
+    async def _check_is_admin(self, chat_id: int, user_id: int) -> bool:
+        """Check if a user is an admin in the given chat.
+        
+        Uses the channel's Telegram API to check admin status.
+        Falls back to False if the check fails.
+        """
+        if not hasattr(self, 'channel') or not self.channel:
+            return False
+        
+        try:
+            # Check if user is in administrators list
+            admins = await self.channel.get_chat_administrators(chat_id)
+            for admin in admins:
+                if admin.get('user', {}).get('id') == user_id:
+                    return True
+            return False
+        except Exception as e:
+            log.warning(f'Failed to check admin status: {e}')
+            return False
+
     
     async def __call__(self, message: Message, context: Any, next_middleware: Callable) -> Any:
         """
@@ -215,11 +237,17 @@ class GroupMiddleware:
         
         # For commands, check if we should handle them
         if isinstance(message, CommandMessage):
+            # Check if user is admin
+            is_admin = await self._check_is_admin(
+                message.chat.id, 
+                message.from_user.id
+            )
+            
             handler = self.router.get_handler(
                 message.command,
                 message.chat,
                 message.from_user,
-                is_admin=False  # TODO: Implement admin check
+                is_admin=is_admin
             )
             
             if handler:
@@ -258,7 +286,7 @@ def create_group_aware_channel(bot_token: str, bot_username: str, owner_id: int)
     channel = EnhancedTelegramChannel(config)
     
     # Add group middleware
-    group_middleware = GroupMiddleware(bot_username)
+    group_middleware = GroupMiddleware(bot_username, channel)
     channel.use(group_middleware)
     
     return channel, group_middleware

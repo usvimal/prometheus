@@ -275,6 +275,33 @@ class EnhancedTelegramChannel:
         """Get bot info."""
         return await self._api_request("getMe")
     
+    
+    async def get_chat_administrators(self, chat_id: int) -> List[Dict[str, Any]]:
+        """Get list of administrators in a chat.
+        
+        Returns list of dicts with user info and admin status.
+        https://core.telegram.org/bots/api#getchatadministrators
+        """
+        result = await self._api_request("getChatAdministrators", chat_id=chat_id)
+        return result if result else []
+    
+    async def is_user_admin(self, chat_id: int, user_id: int) -> bool:
+        """Check if a user is an administrator in a chat.
+        
+        Also returns True if user is the creator.
+        """
+        try:
+            admins = await self.get_chat_administrators(chat_id)
+            for admin in admins:
+                admin_user = admin.get("user", {})
+                if admin_user.get("id") == user_id:
+                    return True
+            return False
+        except Exception as e:
+            log.warning("Failed to check admin status for user %s in chat %s: %s", 
+                       user_id, chat_id, e)
+            return False
+    
     # ============ Polling Mode ============
     
     async def _poll_updates(self) -> None:
