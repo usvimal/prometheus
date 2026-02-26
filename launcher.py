@@ -339,7 +339,34 @@ def reset_chat_agent():
 
 
 # ----------------------------
-# 6.4) Codex OAuth state (for /login command)
+# 6.4) Dashboard server (background thread)
+# ----------------------------
+_DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT", "8080"))
+
+
+def _start_dashboard():
+    """Start the dashboard FastAPI server in a background thread."""
+    try:
+        import uvicorn
+        from dashboard.server import app as dashboard_app
+        log.info("Starting dashboard on 0.0.0.0:%s", _DASHBOARD_PORT)
+        uvicorn.run(
+            dashboard_app,
+            host="0.0.0.0",
+            port=_DASHBOARD_PORT,
+            log_level="warning",
+        )
+    except ImportError as e:
+        log.warning("Dashboard not started (missing dependency): %s", e)
+    except Exception:
+        log.exception("Dashboard server failed")
+
+
+_dashboard_thread = threading.Thread(target=_start_dashboard, daemon=True, name="dashboard")
+_dashboard_thread.start()
+
+# ----------------------------
+# 6.5) Codex OAuth state (for /login command)
 # ----------------------------
 _pending_oauth: Dict[str, Any] = {}
 
@@ -389,6 +416,69 @@ _CMD_RATE_LIMIT: Dict[str, float] = {}  # cmd -> last_processed_ts
 _CMD_RATE_LIMIT_SEC = 2.0  # min seconds between identical commands
 
 
+def _fmt_tokens(n: int) -> str:
+    """Format token count for display (e.g. 1.2M, 50k)."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return str(n)
+
+
+def _build_status_text() -> str:
+    """Build the /status message text."""
+    st = load_state()
+    sha = st.get("current_sha", "?")[:7]
+    version = st.get("version") or "?"
+
+    # Uptime
+    uptime_sec = int(time.time() - _LAUNCH_TIME)
+    if uptime_sec < 60:
+        uptime_str = f"{uptime_sec}s"
+    elif uptime_sec < 3600:
+        uptime_str = f"{uptime_sec // 60}m {uptime_sec % 60}s"
+    elif uptime_sec < 86400:
+        h, rem = divmod(uptime_sec, 3600)
+        uptime_str = f"{h}h {rem // 60}m"
+    else:
+        d, rem = divmod(uptime_sec, 86400)
+        uptime_str = f"{d}d {rem // 3600}h"
+
+    # Token usage
+    prompt_tok = st.get("spent_tokens_prompt", 0)
+    comp_tok = st.get("spent_tokens_completion", 0)
+    calls = st.get("spent_calls", 0)
+
+    # Queue / Evolution / Consciousness / Model
+    pending_count = len(PENDING)
+    running_count = len(RUNNING)
+    evo_enabled = st.get("evolution_mode_enabled", False)
+    evo_cycle = st.get("evolution_cycle", 0)
+    bg_status = "on" if _consciousness.is_running else "off"
+    model_primary = MODEL_MAIN or "?"
+    model_fallback = MODEL_LIGHT or "?"
+
+    # Kimi 5h window usage
+    kimi = get_kimi_usage()
+    kimi_remaining = kimi["window_remaining_sec"]
+    if kimi["calls"] > 0:
+        kh, km = divmod(kimi_remaining, 3600)
+        kimi_time = f"{kh}h {km // 60}m left"
+        kimi_total = kimi["input_tokens"] + kimi["output_tokens"]
+        kimi_line = f"\U0001f4a0 Kimi (5h): {_fmt_tokens(kimi_total)} tokens \u00b7 {kimi['calls']} calls \u00b7 {kimi_time}"
+    else:
+        kimi_line = "\U0001f4a0 Kimi (5h): idle"
+
+    return "\n".join([
+        f"\U0001f525 Prometheus {version} ({sha})",
+        f"\U0001f9e0 Model: {model_primary} \u00b7 Fallback: {model_fallback}",
+        f"\U0001f9ee Tokens: {_fmt_tokens(prompt_tok)} in / {_fmt_tokens(comp_tok)} out \u00b7 {calls} calls",
+        kimi_line,
+        f"\U0001f9f5 Queue: {pending_count} pending \u00b7 {running_count} running \u00b7 {len(WORKERS)} workers",
+        f"\U00002699\ufe0f Evo: {'cycle ' + str(evo_cycle) if evo_enabled else 'off'} \u00b7 BG: {bg_status} \u00b7 Up: {uptime_str}",
+    ])
+
+
 def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     """Handle supervisor slash-commands.
 
@@ -400,7 +490,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     lowered = text.strip().lower()
 
     # Rate-limit read-only commands to prevent flood
-    rate_limited_cmds = ("/queue", "/status", "/budget", "/workers", "/evolve")
+    rate_limited_cmds = ("/queue", "/status", "/budget", "/workers", "/evolve", "/dashboard", "/help")
     for prefix in rate_limited_cmds:
         if lowered.startswith(prefix) and " " not in lowered.strip().strip("/"):
             now = time.time()
@@ -460,71 +550,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         send_with_budget(chat_id, "\n".join(lines))
         return True
     if lowered.startswith("/status"):
-        st = load_state()
-        sha = st.get("current_sha", "?")[:7]
-        version = st.get("version") or "?"
-
-        # Uptime
-        uptime_sec = int(time.time() - _LAUNCH_TIME)
-        if uptime_sec < 60:
-            uptime_str = f"{uptime_sec}s"
-        elif uptime_sec < 3600:
-            uptime_str = f"{uptime_sec // 60}m {uptime_sec % 60}s"
-        elif uptime_sec < 86400:
-            h, rem = divmod(uptime_sec, 3600)
-            uptime_str = f"{h}h {rem // 60}m"
-        else:
-            d, rem = divmod(uptime_sec, 86400)
-            uptime_str = f"{d}d {rem // 3600}h"
-
-        # Token usage
-        prompt_tok = st.get("spent_tokens_prompt", 0)
-        comp_tok = st.get("spent_tokens_completion", 0)
-        cached_tok = st.get("spent_tokens_cached", 0)
-        calls = st.get("spent_calls", 0)
-
-        def _fmt_tokens(n):
-            if n >= 1_000_000:
-                return f"{n / 1_000_000:.1f}M"
-            if n >= 1_000:
-                return f"{n / 1_000:.0f}k"
-            return str(n)
-
-        # Queue
-        pending_count = len(PENDING)
-        running_count = len(RUNNING)
-
-        # Evolution
-        evo_enabled = st.get("evolution_mode_enabled", False)
-        evo_cycle = st.get("evolution_cycle", 0)
-
-        # Consciousness
-        bg_status = "on" if _consciousness.is_running else "off"
-
-        # Model info
-        model_primary = MODEL_MAIN or "?"
-        model_fallback = MODEL_LIGHT or "?"
-
-        # Kimi 5h window usage
-        kimi = get_kimi_usage()
-        kimi_remaining = kimi["window_remaining_sec"]
-        if kimi["calls"] > 0:
-            kh, km = divmod(kimi_remaining, 3600)
-            kimi_time = f"{kh}h {km // 60}m left"
-            kimi_total = kimi["input_tokens"] + kimi["output_tokens"]
-            kimi_line = f"\U0001f4a0 Kimi (5h): {_fmt_tokens(kimi_total)} tokens \u00b7 {kimi['calls']} calls \u00b7 {kimi_time}"
-        else:
-            kimi_line = f"\U0001f4a0 Kimi (5h): idle"
-
-        lines = [
-            f"\U0001f525 Prometheus {version} ({sha})",
-            f"\U0001f9e0 Model: {model_primary} \u00b7 Fallback: {model_fallback}",
-            f"\U0001f9ee Tokens: {_fmt_tokens(prompt_tok)} in / {_fmt_tokens(comp_tok)} out \u00b7 {calls} calls",
-            kimi_line,
-            f"\U0001f9f5 Queue: {pending_count} pending \u00b7 {running_count} running \u00b7 {len(WORKERS)} workers",
-            f"\U00002699\ufe0f Evo: {'cycle ' + str(evo_cycle) if evo_enabled else 'off'} \u00b7 BG: {bg_status} \u00b7 Up: {uptime_str}",
-        ]
-        send_with_budget(chat_id, "\n".join(lines))
+        send_with_budget(chat_id, _build_status_text())
         return True
 
     if lowered.startswith("/budget"):
@@ -577,6 +603,32 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     if lowered.startswith("/review"):
         queue_review_task()
         send_with_budget(chat_id, "Review queued.")
+        return True
+
+    if lowered.startswith("/dashboard"):
+        # Use VPS public IP or configured hostname
+        host = os.environ.get("DASHBOARD_HOST", "178.62.224.22")
+        port = _DASHBOARD_PORT
+        url = f"http://{host}:{port}"
+        send_with_budget(chat_id, f"📊 Dashboard: {url}")
+        return True
+
+    if lowered.startswith("/help"):
+        lines = [
+            "📖 Commands:",
+            "  /status — system snapshot",
+            "  /queue — task queue",
+            "  /budget — spending info",
+            "  /workers — worker pool",
+            "  /evolve [start|stop] — evolution mode",
+            "  /bg [start|stop] — background consciousness",
+            "  /review — queue a code review",
+            "  /dashboard — web dashboard URL",
+            "  /login — Codex OAuth flow",
+            "  /restart — soft restart",
+            "  /panic — emergency stop",
+        ]
+        send_with_budget(chat_id, "\n".join(lines))
         return True
 
     return ""
