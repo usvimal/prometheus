@@ -447,10 +447,10 @@ def test_function_size_limits():
 
 # ── Cross-file interface tests ───────────────────────────────────
 
-def test_run_loop_import():
-    """run_loop is importable from loop.py and callable."""
-    from prometheus.loop import run_loop
-    assert callable(run_loop)
+def test_run_llm_loop_import():
+    """run_llm_loop is importable from loop.py and callable."""
+    from prometheus.loop import run_llm_loop
+    assert callable(run_llm_loop)
 
 
 def test_get_tools_import():
