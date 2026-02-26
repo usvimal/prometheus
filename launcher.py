@@ -25,6 +25,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+_LAUNCH_TIME = time.time()
+
 # ----------------------------
 # 0) Load config from env file if present
 # ----------------------------
@@ -442,28 +444,71 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         return True
 
     if lowered.startswith("/queue"):
-        from supervisor.queue import get_queue_snapshot
-        snap = get_queue_snapshot()
-        lines = ["📋 Queue:"]
-        for t in snap.get("pending", []):
-            tid = t.get("id", "?")[:8]
-            typ = t.get("type", "?")
-            desc = t.get("description", "")[:30]
-            lines.append(f"  {tid} | {typ} | {desc}")
-        lines.append(f"\n🐢 Pending: {len(snap.get('pending', []))}")
-        lines.append(f"🏃 Running: {len(snap.get('running', []))}")
+        lines = ["\U0001f4cb Queue:"]
+        if PENDING:
+            for t in PENDING:
+                tid = str(t.get("id", "?"))[:8]
+                typ = t.get("type", "?")
+                txt = str(t.get("text") or t.get("description") or "")[:40]
+                lines.append(f"  {tid} | {typ} | {txt}")
+        else:
+            lines.append("  (empty)")
+        lines.append(f"\n\U0001f7e1 Pending: {len(PENDING)} \u00b7 \U0001f7e2 Running: {len(RUNNING)}")
         send_with_budget(chat_id, "\n".join(lines))
         return True
-
     if lowered.startswith("/status"):
         st = load_state()
+        sha = st.get("current_sha", "?")[:7]
+        version = st.get("version") or "?"
+
+        # Uptime
+        uptime_sec = int(time.time() - _LAUNCH_TIME)
+        if uptime_sec < 60:
+            uptime_str = f"{uptime_sec}s"
+        elif uptime_sec < 3600:
+            uptime_str = f"{uptime_sec // 60}m {uptime_sec % 60}s"
+        elif uptime_sec < 86400:
+            h, rem = divmod(uptime_sec, 3600)
+            uptime_str = f"{h}h {rem // 60}m"
+        else:
+            d, rem = divmod(uptime_sec, 86400)
+            uptime_str = f"{d}d {rem // 3600}h"
+
+        # Token usage
+        prompt_tok = st.get("spent_tokens_prompt", 0)
+        comp_tok = st.get("spent_tokens_completion", 0)
+        cached_tok = st.get("spent_tokens_cached", 0)
+        calls = st.get("spent_calls", 0)
+
+        def _fmt_tokens(n):
+            if n >= 1_000_000:
+                return f"{n / 1_000_000:.1f}M"
+            if n >= 1_000:
+                return f"{n / 1_000:.0f}k"
+            return str(n)
+
+        # Queue
+        pending_count = len(PENDING)
+        running_count = len(RUNNING)
+
+        # Evolution
+        evo_enabled = st.get("evolution_mode_enabled", False)
+        evo_cycle = st.get("evolution_cycle", 0)
+
+        # Consciousness
+        bg_status = "on" if _consciousness.is_running else "off"
+
+        # Model info
+        model_primary = MODEL_MAIN or "?"
+        model_fallback = MODEL_LIGHT or "?"
+
         lines = [
-            f"**Version:** {st.get('version', '?')}",
-            f"**SHA:** {st.get('current_sha', '?')[:8]}",
-            f"**Branch:** {st.get('current_branch', '?')}",
-            f"**Workers:** {len(WORKERS)}",
-            f"**Budget:** ${st.get('spent_usd', 0):.2f} / ${TOTAL_BUDGET_LIMIT:.2f}",
-            f"**Consciousness:** {'running' if _consciousness.is_running else 'stopped'}",
+            f"\U0001f525 Prometheus {version} ({sha})",
+            f"\U0001f9e0 Model: {model_primary} \u00b7 Fallback: {model_fallback}",
+            f"\U0001f9ee Tokens: {_fmt_tokens(prompt_tok)} in / {_fmt_tokens(comp_tok)} out \u00b7 {calls} calls",
+            f"\U0001f4ca Budget: ${st.get('spent_usd', 0):.2f} / ${TOTAL_BUDGET_LIMIT:.2f}",
+            f"\U0001f9f5 Queue: {pending_count} pending \u00b7 {running_count} running \u00b7 {len(WORKERS)} workers",
+            f"\U00002699\ufe0f Evo: {'cycle ' + str(evo_cycle) if evo_enabled else 'off'} \u00b7 BG: {bg_status} \u00b7 Up: {uptime_str}",
         ]
         send_with_budget(chat_id, "\n".join(lines))
         return True
