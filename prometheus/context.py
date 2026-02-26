@@ -756,9 +756,6 @@ def _compact_tool_call_arguments(tool_name: str, args_json: str) -> Dict[str, An
         "drive_write": "content",
         "claude_code_edit": "prompt",
         "update_scratchpad": "content",
-        "run_shell": "cmd",
-        "repo_read": "path",
-        "git_diff": None,
     }
 
     try:
