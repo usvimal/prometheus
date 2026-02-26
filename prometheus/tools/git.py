@@ -243,6 +243,14 @@ def _repo_write_commit(ctx: ToolContext, path: str, content: str, commit_message
     finally:
         _release_git_lock(lock)
     ctx.last_push_succeeded = True
+    # Warn if commit message seems inflated relative to change size
+    if len(commit_message) > 200:
+        try:
+            diff_stat = run_cmd(["git", "diff", "HEAD~1", "--stat", "--stat-count=1"], cwd=ctx.repo_dir)
+            if "1 file changed" in diff_stat and len(commit_message) > 300:
+                log.warning("Commit message (%d chars) seems inflated for a 1-file change", len(commit_message))
+        except Exception:
+            pass
     return f"OK: committed and pushed to {ctx.branch_dev}: {commit_message}"
 
 
@@ -278,6 +286,12 @@ def _repo_commit_push(ctx: ToolContext, commit_message: str, paths: Optional[Lis
             return f"⚠️ GIT_ERROR (status): {e}"
         if not status.strip():
             return "⚠️ GIT_NO_CHANGES: nothing to commit."
+
+        # Block no-op commits (only marker files, no real code)
+        changed_files = [line[3:].strip() for line in status.strip().splitlines() if line.strip()]
+        meaningful = [f for f in changed_files if not f.startswith('.') and not f.endswith('.marker')]
+        if not meaningful:
+            return "⚠️ EVOLUTION_GUARD: Only marker/dot files changed. This is not a meaningful commit."
         try:
             run_cmd(["git", "commit", "-m", commit_message], cwd=ctx.repo_dir)
         except Exception as e:

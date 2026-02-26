@@ -117,6 +117,16 @@ class ToolRegistry:
                 mod = importlib.import_module(f"prometheus.tools.{modname}")
                 if hasattr(mod, "get_tools"):
                     for entry in mod.get_tools():
+                        if not isinstance(entry, ToolEntry):
+                            import logging
+                            logging.getLogger(__name__).warning(
+                                "Tool module %s returned %s instead of ToolEntry, skipping",
+                                modname, type(entry).__name__)
+                            continue
+                        if entry.name in self._entries:
+                            import logging
+                            logging.getLogger(__name__).debug(
+                                "Tool %s from %s shadows existing tool", entry.name, modname)
                         self._entries[entry.name] = entry
             except Exception:
                 import logging
