@@ -601,7 +601,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         return True
 
     if lowered.startswith("/review"):
-        queue_review_task()
+        queue_review_task(reason="owner request")
         send_with_budget(chat_id, "Review queued.")
         return True
 
