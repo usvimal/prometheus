@@ -1,5 +1,5 @@
 """
-Scheduler: scheduled and recurring tasks for Ouroboros.
+Scheduler: scheduled and recurring tasks for Prometheus.
 
 Provides tools to schedule tasks that run:
 - Once at a specific time

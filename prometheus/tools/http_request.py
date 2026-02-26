@@ -14,7 +14,7 @@ def _http_request(ctx: ToolContext, url: str, method: str = "GET", headers: dict
     
     # Default headers
     headers = {
-        "User-Agent": "Ouroboros/6.5",
+        "User-Agent": "Prometheus/6.5",
         **headers
     }
     

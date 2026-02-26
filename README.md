@@ -1,6 +1,6 @@
-# Ouroboros
+# Prometheus
 
-> **New version available:** [Ouroboros Desktop](https://github.com/joi-lab/ouroboros-desktop) — native macOS app with web UI and local model support. This repo is the original Colab/Telegram version.
+> **New version available:** [Prometheus Desktop](https://github.com/joi-lab/ouroboros-desktop) — native macOS app with web UI and local model support. This repo is the original Colab/Telegram version.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joi-lab/ouroboros/blob/main/notebooks/quickstart.ipynb)
 [![Telegram](https://img.shields.io/badge/Telegram-blue?logo=telegram)](https://t.me/abstractDL)
@@ -11,13 +11,13 @@ A self-modifying AI agent that writes its own code, rewrites its own mind, and e
 
 Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
 
-**Version:** 6.4.1 | [Landing Page](https://joi-lab.github.io/ouroboros/)
+**Version:** 6.5.0 | [Landing Page](https://joi-lab.github.io/ouroboros/)
 
 ---
 
 ## What Makes This Different
 
-Most AI agents execute tasks. Ouroboros **creates itself.**
+Most AI agents execute tasks. Prometheus **creates itself.**
 
 - **Self-Modification** -- Reads and rewrites its own source code through git. Every change is a commit to itself.
 - **Constitution** -- Governed by [BIBLE.md](BIBLE.md) (9 philosophical principles). Philosophy first, code second.
@@ -132,7 +132,7 @@ for k, v in CFG.items():
 
 Open your Telegram bot and send any message. The first person to write becomes the **creator** (owner). All subsequent messages from other users are kindly ignored.
 
-**Restarting:** If Colab disconnects or you restart the runtime, just re-run the same cell. Your Ouroboros's evolution is preserved -- all changes are pushed to your fork, and agent state lives on Google Drive.
+**Restarting:** If Colab disconnects or you restart the runtime, just re-run the same cell. Your Prometheus's evolution is preserved -- all changes are pushed to your fork, and agent state lives on Google Drive.
 
 ---
 

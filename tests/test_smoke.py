@@ -1,4 +1,4 @@
-"""Smoke test suite for Ouroboros.
+"""Smoke test suite for Prometheus.
 
 Tests core invariants:
 - All modules import cleanly
@@ -129,20 +129,6 @@ EXPECTED_TOOLS = [
     # System monitor (v6.5.0)
     "system_monitor",
 ]
-    "forward_to_worker", "generate_evolution_stats",
-    # Context management
-    "compact_context",
-    "list_available_tools",
-    "enable_tools",
-    "quick_search",
-    # Research tools (v6.4.1)
-    "python_exec", "research_search", "research_fetch", "research_synthesize",
-    # Schedule tools
-    "schedule_task_at", "schedule_task_recurring",
-    "schedule_list", "schedule_cancel", "schedule_enable",
-    # HTTP client (v6.5.2)
-    # System monitor (v6.5.2)
-]
 
 
 @pytest.mark.parametrize("tool_name", EXPECTED_TOOLS)
@@ -240,9 +226,9 @@ def test_memory_identity():
         mem = Memory(drive_root=pathlib.Path(tmp))
         # Write identity file directly (identity_path is a method)
         mem.identity_path().parent.mkdir(parents=True, exist_ok=True)
-        mem.identity_path().write_text("I am Ouroboros")
+        mem.identity_path().write_text("I am Prometheus")
         content = mem.load_identity()
-        assert "Ouroboros" in content
+        assert "Prometheus" in content
 
 
 def test_memory_chat_history_empty():
@@ -288,9 +274,9 @@ def test_context_build_memory_sections():
 # ── Agent module ────────────────────────────────────────────────
 
 def test_agent_class_exists():
-    """OuroborosAgent class exists and is importable."""
-    from prometheus.agent import OuroborosAgent
-    assert OuroborosAgent is not None
+    """PrometheusAgent class exists and is importable."""
+    from prometheus.agent import PrometheusAgent
+    assert PrometheusAgent is not None
 
 
 def test_env_class_exists():

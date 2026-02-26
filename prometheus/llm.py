@@ -277,7 +277,7 @@ class LLMClient:
                 except Exception as e:
                     log.warning("MiniMax call failed: %s — trying OpenRouter fallback", e)
                     # Fall through to OpenRouter with fallback model list
-                    fallback_list = os.environ.get("OUROBOROS_MODEL_FALLBACK_LIST", "")
+                    fallback_list = os.environ.get("PROMETHEUS_MODEL_FALLBACK_LIST", "")
                     fallback_models = [m.strip() for m in fallback_list.split(",") if m.strip()]
                     if fallback_models:
                         model = fallback_models[0]
@@ -529,7 +529,7 @@ class LLMClient:
 
     def default_model(self) -> str:
         """Return the single default model from env. LLM switches via tool if needed."""
-        env_model = os.environ.get("OUROBOROS_MODEL", "")
+        env_model = os.environ.get("PROMETHEUS_MODEL", "")
         if env_model:
             return env_model
         # If Codex is available, default to Codex model
@@ -540,8 +540,8 @@ class LLMClient:
     def available_models(self) -> List[str]:
         """Return list of available models from env (for switch_model tool schema)."""
         main = self.default_model()
-        code = os.environ.get("OUROBOROS_MODEL_CODE", "")
-        light = os.environ.get("OUROBOROS_MODEL_LIGHT", "")
+        code = os.environ.get("PROMETHEUS_MODEL_CODE", "")
+        light = os.environ.get("PROMETHEUS_MODEL_LIGHT", "")
         models = [main]
         # Add Codex models if authenticated
         if self._get_codex_client():

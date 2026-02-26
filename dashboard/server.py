@@ -82,7 +82,7 @@ def _build_budget_info(total_budget: float, spent: float) -> dict:
         from prometheus.llm import fetch_minimax_quota
         quota = fetch_minimax_quota()
         if quota:
-            primary = os.environ.get("OUROBOROS_MODEL", "MiniMax-M2.5")
+            primary = os.environ.get("PROMETHEUS_MODEL", "MiniMax-M2.5")
             mq = quota.get(primary) or next(iter(quota.values()), None)
             if mq:
                 info["calls_remaining"] = mq["remaining"]

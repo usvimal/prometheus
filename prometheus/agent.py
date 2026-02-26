@@ -1,5 +1,5 @@
 """
-Ouroboros agent core — thin orchestrator.
+Prometheus agent core — thin orchestrator.
 
 Delegates to: loop.py (LLM tool loop), tools/ (tool schemas/execution),
 llm.py (LLM calls), memory.py (scratchpad/identity),
@@ -62,7 +62,7 @@ class Env:
 # Agent
 # ---------------------------------------------------------------------------
 
-class OuroborosAgent:
+class PrometheusAgent:
     """One agent instance per worker process. Mostly stateless; long-term state lives on Drive."""
 
     def __init__(self, env: Env, event_queue: Any = None):
@@ -651,6 +651,6 @@ class OuroborosAgent:
 # Factory
 # ---------------------------------------------------------------------------
 
-def make_agent(repo_dir: str, drive_root: str, event_queue: Any = None) -> OuroborosAgent:
+def make_agent(repo_dir: str, drive_root: str, event_queue: Any = None) -> PrometheusAgent:
     env = Env(repo_dir=pathlib.Path(repo_dir), drive_root=pathlib.Path(drive_root))
-    return OuroborosAgent(env, event_queue=event_queue)
+    return PrometheusAgent(env, event_queue=event_queue)

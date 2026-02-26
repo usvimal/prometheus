@@ -1,5 +1,5 @@
 """
-Ouroboros context builder.
+Prometheus context builder.
 
 Assembles LLM context from prompts, memory, logs, and runtime state.
 Extracted from agent.py to keep the agent thin and focused.
@@ -79,7 +79,7 @@ def _build_runtime_section(env: Any, task: Dict[str, Any]) -> str:
             quota = fetch_minimax_quota()
             if quota:
                 # Find the primary model's quota
-                primary_model = os.environ.get("OUROBOROS_MODEL", "MiniMax-M2.5")
+                primary_model = os.environ.get("PROMETHEUS_MODEL", "MiniMax-M2.5")
                 model_quota = quota.get(primary_model) or next(iter(quota.values()), None)
                 if model_quota:
                     budget_info = {
@@ -273,7 +273,7 @@ def _build_health_invariants(env: Any) -> str:
             if identity_claims:
                 checks.append(
                     f"WARNING: IDENTITY DRIFT — identity.md contains model self-identification: "
-                    f"{', '.join(identity_claims)}. Agent should identify as Prometheus/Ouroboros, "
+                    f"{', '.join(identity_claims)}. Agent should identify as Prometheus/Prometheus, "
                     f"not as its LLM backend."
                 )
             else:
@@ -726,7 +726,7 @@ def compact_tool_history_llm(messages: list, keep_recent: int = 6) -> list:
 
     try:
         from prometheus.llm import LLMClient, DEFAULT_LIGHT_MODEL
-        light_model = os.environ.get("OUROBOROS_MODEL_LIGHT") or DEFAULT_LIGHT_MODEL
+        light_model = os.environ.get("PROMETHEUS_MODEL_LIGHT") or DEFAULT_LIGHT_MODEL
         client = LLMClient()
         resp_msg, _usage = client.chat(
             messages=[{"role": "user", "content": prompt}],

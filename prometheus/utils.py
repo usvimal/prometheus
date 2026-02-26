@@ -1,5 +1,5 @@
 """
-Ouroboros — Shared utilities.
+Prometheus — Shared utilities.
 
 Single source for helper functions used across all modules.
 Does not import anything from prometheus.* (zero dependency level).

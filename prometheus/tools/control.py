@@ -317,7 +317,7 @@ def get_tools() -> List[ToolEntry]:
         }, _update_identity),
         ToolEntry("toggle_evolution", {
             "name": "toggle_evolution",
-            "description": "Enable or disable evolution mode. When enabled, Ouroboros runs continuous self-improvement cycles.",
+            "description": "Enable or disable evolution mode. When enabled, Prometheus runs continuous self-improvement cycles.",
             "parameters": {"type": "object", "properties": {
                 "enabled": {"type": "boolean", "description": "true to enable, false to disable"},
             }, "required": ["enabled"]},

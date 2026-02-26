@@ -48,7 +48,7 @@ _SPAWN_GRACE_SEC: float = 90.0  # workers need up to ~60s to init on Colab (spaw
 # Since launcher has top-level side effects, this causes worker child crashes (exitcode=1).
 # Use "fork" by default on Linux; allow override via env.
 _DEFAULT_WORKER_START_METHOD = "fork" if sys.platform.startswith("linux") else "spawn"
-_WORKER_START_METHOD = str(os.environ.get("OUROBOROS_WORKER_START_METHOD", _DEFAULT_WORKER_START_METHOD) or _DEFAULT_WORKER_START_METHOD).strip().lower()
+_WORKER_START_METHOD = str(os.environ.get("PROMETHEUS_WORKER_START_METHOD", _DEFAULT_WORKER_START_METHOD) or _DEFAULT_WORKER_START_METHOD).strip().lower()
 if _WORKER_START_METHOD not in {"fork", "spawn", "forkserver"}:
     _WORKER_START_METHOD = _DEFAULT_WORKER_START_METHOD
 

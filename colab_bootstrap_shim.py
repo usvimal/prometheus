@@ -43,9 +43,9 @@ for _name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
     export_secret_to_env(_name, required=False)
 
 # Colab diagnostics defaults (override in config cell if needed).
-os.environ.setdefault("OUROBOROS_WORKER_START_METHOD", "fork")
-os.environ.setdefault("OUROBOROS_DIAG_HEARTBEAT_SEC", "30")
-os.environ.setdefault("OUROBOROS_DIAG_SLOW_CYCLE_SEC", "20")
+os.environ.setdefault("PROMETHEUS_WORKER_START_METHOD", "fork")
+os.environ.setdefault("PROMETHEUS_DIAG_HEARTBEAT_SEC", "30")
+os.environ.setdefault("PROMETHEUS_DIAG_SLOW_CYCLE_SEC", "20")
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 GITHUB_TOKEN = str(os.environ["GITHUB_TOKEN"])
@@ -53,9 +53,9 @@ GITHUB_USER = os.environ.get("GITHUB_USER", "").strip()
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "").strip()
 assert GITHUB_USER, "GITHUB_USER not set. Add it to your config cell (see README)."
 assert GITHUB_REPO, "GITHUB_REPO not set. Add it to your config cell (see README)."
-BOOT_BRANCH = str(os.environ.get("OUROBOROS_BOOT_BRANCH", "ouroboros"))
+BOOT_BRANCH = str(os.environ.get("PROMETHEUS_BOOT_BRANCH", "prometheus"))
 
-REPO_DIR = pathlib.Path("/content/ouroboros_repo").resolve()
+REPO_DIR = pathlib.Path("/content/prometheus_repo").resolve()
 REMOTE_URL = f"https://{GITHUB_TOKEN}:x-oauth-basic@github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
 
 if not (REPO_DIR / ".git").exists():
@@ -89,11 +89,11 @@ print(
     % (
         BOOT_BRANCH,
         HEAD_SHA[:12],
-        os.environ.get("OUROBOROS_WORKER_START_METHOD", ""),
-        os.environ.get("OUROBOROS_DIAG_HEARTBEAT_SEC", ""),
+        os.environ.get("PROMETHEUS_WORKER_START_METHOD", ""),
+        os.environ.get("PROMETHEUS_DIAG_HEARTBEAT_SEC", ""),
     )
 )
-print("[boot] logs: /content/drive/MyDrive/Ouroboros/logs/supervisor.jsonl")
+print("[boot] logs: /content/drive/MyDrive/Prometheus/logs/supervisor.jsonl")
 
 # Mount Drive in notebook process first (interactive auth works here).
 if not pathlib.Path("/content/drive/MyDrive").exists():

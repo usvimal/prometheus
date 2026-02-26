@@ -1,5 +1,5 @@
 """
-Vision Language Model (VLM) tools for Ouroboros.
+Vision Language Model (VLM) tools for Prometheus.
 
 Allows the agent to analyze screenshots and images using LLM vision capabilities.
 Integrates with the existing browser screenshot workflow:
@@ -25,7 +25,7 @@ _DEFAULT_VLM_MODEL = "anthropic/claude-sonnet-4.6"
 
 def _get_vlm_model() -> str:
     """Get VLM model from env or use default."""
-    return os.environ.get("OUROBOROS_MODEL", _DEFAULT_VLM_MODEL)
+    return os.environ.get("PROMETHEUS_MODEL", _DEFAULT_VLM_MODEL)
 
 
 def _get_llm_client():
@@ -142,7 +142,7 @@ def get_tools() -> List[ToolEntry]:
                         },
                         "model": {
                             "type": "string",
-                            "description": "VLM model to use (default: current OUROBOROS_MODEL)",
+                            "description": "VLM model to use (default: current PROMETHEUS_MODEL)",
                         },
                     },
                     "required": [],
@@ -181,7 +181,7 @@ def get_tools() -> List[ToolEntry]:
                         },
                         "model": {
                             "type": "string",
-                            "description": "VLM model to use (default: current OUROBOROS_MODEL)",
+                            "description": "VLM model to use (default: current PROMETHEUS_MODEL)",
                         },
                     },
                     "required": ["prompt"],

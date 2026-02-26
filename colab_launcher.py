@@ -1,5 +1,5 @@
 # ============================
-# Ouroboros — Runtime launcher (entry point, executed from repository)
+# Prometheus — Runtime launcher (entry point, executed from repository)
 # ============================
 # Thin orchestrator: secrets, bootstrap, main loop.
 # Heavy logic lives in supervisor/ package.
@@ -114,21 +114,21 @@ GITHUB_USER = get_cfg("GITHUB_USER", default=None, allow_legacy_secret=True)
 GITHUB_REPO = get_cfg("GITHUB_REPO", default=None, allow_legacy_secret=True)
 assert GITHUB_USER and str(GITHUB_USER).strip(), "GITHUB_USER not set. Add it to your config cell (see README)."
 assert GITHUB_REPO and str(GITHUB_REPO).strip(), "GITHUB_REPO not set. Add it to your config cell (see README)."
-MAX_WORKERS = int(get_cfg("OUROBOROS_MAX_WORKERS", default="5", allow_legacy_secret=True) or "5")
-MODEL_MAIN = get_cfg("OUROBOROS_MODEL", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
-MODEL_CODE = get_cfg("OUROBOROS_MODEL_CODE", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
-MODEL_LIGHT = get_cfg("OUROBOROS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL, allow_legacy_secret=True)
+MAX_WORKERS = int(get_cfg("PROMETHEUS_MAX_WORKERS", default="5", allow_legacy_secret=True) or "5")
+MODEL_MAIN = get_cfg("PROMETHEUS_MODEL", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
+MODEL_CODE = get_cfg("PROMETHEUS_MODEL_CODE", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
+MODEL_LIGHT = get_cfg("PROMETHEUS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL, allow_legacy_secret=True)
 
 BUDGET_REPORT_EVERY_MESSAGES = 10
-SOFT_TIMEOUT_SEC = max(60, int(get_cfg("OUROBOROS_SOFT_TIMEOUT_SEC", default="600", allow_legacy_secret=True) or "600"))
-HARD_TIMEOUT_SEC = max(120, int(get_cfg("OUROBOROS_HARD_TIMEOUT_SEC", default="1800", allow_legacy_secret=True) or "1800"))
+SOFT_TIMEOUT_SEC = max(60, int(get_cfg("PROMETHEUS_SOFT_TIMEOUT_SEC", default="600", allow_legacy_secret=True) or "600"))
+HARD_TIMEOUT_SEC = max(120, int(get_cfg("PROMETHEUS_HARD_TIMEOUT_SEC", default="1800", allow_legacy_secret=True) or "1800"))
 DIAG_HEARTBEAT_SEC = _parse_int_cfg(
-    get_cfg("OUROBOROS_DIAG_HEARTBEAT_SEC", default="30", allow_legacy_secret=True),
+    get_cfg("PROMETHEUS_DIAG_HEARTBEAT_SEC", default="30", allow_legacy_secret=True),
     default=30,
     minimum=0,
 )
 DIAG_SLOW_CYCLE_SEC = _parse_int_cfg(
-    get_cfg("OUROBOROS_DIAG_SLOW_CYCLE_SEC", default="20", allow_legacy_secret=True),
+    get_cfg("PROMETHEUS_DIAG_SLOW_CYCLE_SEC", default="20", allow_legacy_secret=True),
     default=20,
     minimum=0,
 )
@@ -138,12 +138,12 @@ os.environ["OPENAI_API_KEY"] = str(OPENAI_API_KEY or "")
 os.environ["ANTHROPIC_API_KEY"] = str(ANTHROPIC_API_KEY or "")
 os.environ["GITHUB_USER"] = str(GITHUB_USER)
 os.environ["GITHUB_REPO"] = str(GITHUB_REPO)
-os.environ["OUROBOROS_MODEL"] = str(MODEL_MAIN or "anthropic/claude-sonnet-4.6")
-os.environ["OUROBOROS_MODEL_CODE"] = str(MODEL_CODE or "anthropic/claude-sonnet-4.6")
+os.environ["PROMETHEUS_MODEL"] = str(MODEL_MAIN or "anthropic/claude-sonnet-4.6")
+os.environ["PROMETHEUS_MODEL_CODE"] = str(MODEL_CODE or "anthropic/claude-sonnet-4.6")
 if MODEL_LIGHT:
-    os.environ["OUROBOROS_MODEL_LIGHT"] = str(MODEL_LIGHT)
-os.environ["OUROBOROS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
-os.environ["OUROBOROS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
+    os.environ["PROMETHEUS_MODEL_LIGHT"] = str(MODEL_LIGHT)
+os.environ["PROMETHEUS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
+os.environ["PROMETHEUS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
 os.environ["TELEGRAM_BOT_TOKEN"] = str(TELEGRAM_BOT_TOKEN)
 
 if str(ANTHROPIC_API_KEY or "").strip():
@@ -155,8 +155,8 @@ if str(ANTHROPIC_API_KEY or "").strip():
 if not pathlib.Path("/content/drive/MyDrive").exists():
     drive.mount("/content/drive")
 
-DRIVE_ROOT = pathlib.Path("/content/drive/MyDrive/Ouroboros").resolve()
-REPO_DIR = pathlib.Path("/content/ouroboros_repo").resolve()
+DRIVE_ROOT = pathlib.Path("/content/drive/MyDrive/Prometheus").resolve()
+REPO_DIR = pathlib.Path("/content/prometheus_repo").resolve()
 
 for sub in ["state", "logs", "memory", "index", "locks", "archive"]:
     (DRIVE_ROOT / sub).mkdir(parents=True, exist_ok=True)
@@ -184,8 +184,8 @@ if not CHAT_LOG_PATH.exists():
 # ----------------------------
 # 3) Git constants
 # ----------------------------
-BRANCH_DEV = "ouroboros"
-BRANCH_STABLE = "ouroboros-stable"
+BRANCH_DEV = "prometheus"
+BRANCH_STABLE = "prometheus-stable"
 REMOTE_URL = f"https://{GITHUB_TOKEN}:x-oauth-basic@github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
 
 # ----------------------------
@@ -267,7 +267,7 @@ append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
     "max_workers": MAX_WORKERS,
     "model_default": MODEL_MAIN, "model_code": MODEL_CODE, "model_light": MODEL_LIGHT,
     "soft_timeout_sec": SOFT_TIMEOUT_SEC, "hard_timeout_sec": HARD_TIMEOUT_SEC,
-    "worker_start_method": str(os.environ.get("OUROBOROS_WORKER_START_METHOD") or ""),
+    "worker_start_method": str(os.environ.get("PROMETHEUS_WORKER_START_METHOD") or ""),
     "diag_heartbeat_sec": DIAG_HEARTBEAT_SEC,
     "diag_slow_cycle_sec": DIAG_SLOW_CYCLE_SEC,
 })
@@ -547,7 +547,7 @@ while True:
             st["last_owner_message_at"] = now_iso
             save_state(st)
             log_chat("in", chat_id, user_id, text)
-            send_with_budget(chat_id, "✅ Owner registered. Ouroboros online.")
+            send_with_budget(chat_id, "✅ Owner registered. Prometheus online.")
             continue
 
         if user_id != int(st.get("owner_id")):
@@ -571,7 +571,7 @@ while True:
             except Exception:
                 log.warning("Supervisor command handler error", exc_info=True)
 
-        # All other messages (and dual-path commands) → direct chat with Ouroboros
+        # All other messages (and dual-path commands) → direct chat with Prometheus
         if not text and not image_data:
             continue  # empty message, skip
 

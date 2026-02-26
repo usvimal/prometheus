@@ -1,5 +1,5 @@
 """
-Ouroboros — Tool registry (SSOT).
+Prometheus — Tool registry (SSOT).
 
 Plugin architecture: each module in tools/ exports get_tools().
 ToolRegistry collects all tools, provides schemas() and execute().
@@ -127,7 +127,7 @@ class ToolRegistry:
         self._ctx = ctx
 
     def register(self, entry: ToolEntry) -> None:
-        """Register a new tool (for extension by Ouroboros)."""
+        """Register a new tool (for extension by Prometheus)."""
         self._entries[entry.name] = entry
 
     # --- Contract ---

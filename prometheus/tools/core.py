@@ -231,14 +231,14 @@ def _summarize_dialogue(ctx: ToolContext, last_n: int = 200) -> str:
         for entry in entries:
             ts = entry.get("ts", "")
             direction = entry.get("direction", "")
-            role = "Creator" if direction == "in" else "Ouroboros"
+            role = "Creator" if direction == "in" else "Prometheus"
             text = entry.get("text", "")
             dialogue_text.append(f"[{ts}] {role}: {text}")
 
         formatted_dialogue = "\n".join(dialogue_text)
 
         # Build summarization prompt
-        prompt = f"""Summarize the following dialogue history between the creator and Ouroboros.
+        prompt = f"""Summarize the following dialogue history between the creator and Prometheus.
 
 Extract:
 1. Key decisions made (technical, architectural, strategic)
@@ -258,7 +258,7 @@ Now write a comprehensive summary:"""
 
         # Call LLM
         llm = LLMClient()
-        model = os.environ.get("OUROBOROS_MODEL_LIGHT", "") or DEFAULT_LIGHT_MODEL
+        model = os.environ.get("PROMETHEUS_MODEL_LIGHT", "") or DEFAULT_LIGHT_MODEL
 
         messages = [
             {"role": "user", "content": prompt}
@@ -341,7 +341,7 @@ def get_tools() -> List[ToolEntry]:
         }, _repo_list),
         ToolEntry("drive_read", {
             "name": "drive_read",
-            "description": "Read a UTF-8 text file from Google Drive (relative to MyDrive/Ouroboros/).",
+            "description": "Read a UTF-8 text file from Google Drive (relative to MyDrive/Prometheus/).",
             "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
         }, _drive_read),
         ToolEntry("drive_list", {

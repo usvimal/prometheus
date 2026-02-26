@@ -1,5 +1,5 @@
 """
-Ouroboros — Background Consciousness.
+Prometheus — Background Consciousness.
 
 A persistent thinking loop that runs between tasks, giving the agent
 continuous presence rather than purely reactive behavior.
@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 
 class BackgroundConsciousness:
-    """Persistent background thinking loop for Ouroboros."""
+    """Persistent background thinking loop for Prometheus."""
 
     _MAX_BG_ROUNDS = 5
 
@@ -67,7 +67,7 @@ class BackgroundConsciousness:
         # Budget tracking
         self._bg_spent_usd: float = 0.0
         self._bg_budget_pct: float = float(
-            os.environ.get("OUROBOROS_BG_BUDGET_PCT", "10")
+            os.environ.get("PROMETHEUS_BG_BUDGET_PCT", "10")
         )
 
     # -------------------------------------------------------------------
@@ -80,7 +80,7 @@ class BackgroundConsciousness:
 
     @property
     def _model(self) -> str:
-        return os.environ.get("OUROBOROS_MODEL_LIGHT", "") or DEFAULT_LIGHT_MODEL
+        return os.environ.get("PROMETHEUS_MODEL_LIGHT", "") or DEFAULT_LIGHT_MODEL
 
     def start(self) -> str:
         if self.is_running:

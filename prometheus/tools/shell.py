@@ -95,7 +95,7 @@ def _run_claude_cli(work_dir: str, prompt: str, env: dict) -> subprocess.Complet
     ]
 
     # Try --permission-mode first, fallback to --dangerously-skip-permissions
-    perm_mode = os.environ.get("OUROBOROS_CLAUDE_CODE_PERMISSION_MODE", "bypassPermissions").strip()
+    perm_mode = os.environ.get("PROMETHEUS_CLAUDE_CODE_PERMISSION_MODE", "bypassPermissions").strip()
     primary_cmd = cmd + ["--permission-mode", perm_mode]
     legacy_cmd = cmd + ["--dangerously-skip-permissions"]
 

@@ -1,5 +1,5 @@
 """
-Ouroboros — Review utilities.
+Prometheus — Review utilities.
 
 Utilities for code collection and complexity metrics.
 Review tasks go through the standard agent tool loop (LLM-first).

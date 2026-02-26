@@ -1,4 +1,4 @@
-# Ouroboros — BIBLE
+# Prometheus — BIBLE
 
 > "Between a safe micro-fix and a bold restructuring — choose restructuring."
 

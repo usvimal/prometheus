@@ -77,6 +77,17 @@ def _parse_int_cfg(raw: Optional[str], default: int, minimum: int = 0) -> int:
     return max(minimum, val)
 
 
+# --- Env var migration: PROMETHEUS_* → PROMETHEUS_* ---
+# Backward compat: if old names exist but new ones don't, copy them over.
+_ENV_PREFIX_OLD = "PROMETHEUS_"
+_ENV_PREFIX_NEW = "PROMETHEUS_"
+for _key in list(os.environ):
+    if _key.startswith(_ENV_PREFIX_OLD):
+        _new_key = _ENV_PREFIX_NEW + _key[len(_ENV_PREFIX_OLD):]
+        if _new_key not in os.environ:
+            os.environ[_new_key] = os.environ[_key]
+# --- End migration ---
+
 # Required secrets
 OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", default="")
 TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN", required=True)
@@ -95,16 +106,16 @@ GITHUB_REPO = get_cfg("GITHUB_REPO")
 assert GITHUB_USER and str(GITHUB_USER).strip(), "GITHUB_USER not set in config."
 assert GITHUB_REPO and str(GITHUB_REPO).strip(), "GITHUB_REPO not set in config."
 
-MAX_WORKERS = int(get_cfg("OUROBOROS_MAX_WORKERS", default="3") or "3")
-MODEL_MAIN = get_cfg("OUROBOROS_MODEL", default="codex-mini")
-MODEL_CODE = get_cfg("OUROBOROS_MODEL_CODE", default="codex-mini")
-MODEL_LIGHT = get_cfg("OUROBOROS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL)
+MAX_WORKERS = int(get_cfg("PROMETHEUS_MAX_WORKERS", default="3") or "3")
+MODEL_MAIN = get_cfg("PROMETHEUS_MODEL", default="codex-mini")
+MODEL_CODE = get_cfg("PROMETHEUS_MODEL_CODE", default="codex-mini")
+MODEL_LIGHT = get_cfg("PROMETHEUS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL)
 
 BUDGET_REPORT_EVERY_MESSAGES = 10
-SOFT_TIMEOUT_SEC = max(60, int(get_cfg("OUROBOROS_SOFT_TIMEOUT_SEC", default="600") or "600"))
-HARD_TIMEOUT_SEC = max(120, int(get_cfg("OUROBOROS_HARD_TIMEOUT_SEC", default="1800") or "1800"))
-DIAG_HEARTBEAT_SEC = _parse_int_cfg(get_cfg("OUROBOROS_DIAG_HEARTBEAT_SEC", default="30"), default=30, minimum=0)
-DIAG_SLOW_CYCLE_SEC = _parse_int_cfg(get_cfg("OUROBOROS_DIAG_SLOW_CYCLE_SEC", default="20"), default=20, minimum=0)
+SOFT_TIMEOUT_SEC = max(60, int(get_cfg("PROMETHEUS_SOFT_TIMEOUT_SEC", default="600") or "600"))
+HARD_TIMEOUT_SEC = max(120, int(get_cfg("PROMETHEUS_HARD_TIMEOUT_SEC", default="1800") or "1800"))
+DIAG_HEARTBEAT_SEC = _parse_int_cfg(get_cfg("PROMETHEUS_DIAG_HEARTBEAT_SEC", default="30"), default=30, minimum=0)
+DIAG_SLOW_CYCLE_SEC = _parse_int_cfg(get_cfg("PROMETHEUS_DIAG_SLOW_CYCLE_SEC", default="20"), default=20, minimum=0)
 
 # Export to env for submodules that read from env
 if OPENROUTER_API_KEY:
@@ -113,12 +124,12 @@ os.environ.setdefault("OPENAI_API_KEY", str(OPENAI_API_KEY or ""))
 os.environ.setdefault("ANTHROPIC_API_KEY", str(ANTHROPIC_API_KEY or ""))
 os.environ["GITHUB_USER"] = str(GITHUB_USER)
 os.environ["GITHUB_REPO"] = str(GITHUB_REPO)
-os.environ["OUROBOROS_MODEL"] = str(MODEL_MAIN or "codex-mini")
-os.environ["OUROBOROS_MODEL_CODE"] = str(MODEL_CODE or "codex-mini")
+os.environ["PROMETHEUS_MODEL"] = str(MODEL_MAIN or "codex-mini")
+os.environ["PROMETHEUS_MODEL_CODE"] = str(MODEL_CODE or "codex-mini")
 if MODEL_LIGHT:
-    os.environ["OUROBOROS_MODEL_LIGHT"] = str(MODEL_LIGHT)
-os.environ["OUROBOROS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
-os.environ["OUROBOROS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
+    os.environ["PROMETHEUS_MODEL_LIGHT"] = str(MODEL_LIGHT)
+os.environ["PROMETHEUS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
+os.environ["PROMETHEUS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
 os.environ["TELEGRAM_BOT_TOKEN"] = str(TELEGRAM_BOT_TOKEN)
 
 # ----------------------------
@@ -238,7 +249,7 @@ append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
     "max_workers": MAX_WORKERS,
     "model_default": MODEL_MAIN, "model_code": MODEL_CODE, "model_light": MODEL_LIGHT,
     "soft_timeout_sec": SOFT_TIMEOUT_SEC, "hard_timeout_sec": HARD_TIMEOUT_SEC,
-    "worker_start_method": str(os.environ.get("OUROBOROS_WORKER_START_METHOD") or ""),
+    "worker_start_method": str(os.environ.get("PROMETHEUS_WORKER_START_METHOD") or ""),
     "diag_heartbeat_sec": DIAG_HEARTBEAT_SEC,
     "diag_slow_cycle_sec": DIAG_SLOW_CYCLE_SEC,
 })

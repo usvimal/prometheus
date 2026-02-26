@@ -1,5 +1,5 @@
 """
-Ouroboros — LLM tool loop.
+Prometheus — LLM tool loop.
 
 Core loop: send messages to LLM, execute tool calls, repeat until final response.
 Extracted from agent.py to keep the agent thin.
@@ -645,10 +645,10 @@ def run_llm_loop(
     # Dedup set for per-task owner messages from Drive mailbox
     _owner_msg_seen: set = set()
     try:
-        MAX_ROUNDS = max(1, int(os.environ.get("OUROBOROS_MAX_ROUNDS", "200")))
+        MAX_ROUNDS = max(1, int(os.environ.get("PROMETHEUS_MAX_ROUNDS", "200")))
     except (ValueError, TypeError):
         MAX_ROUNDS = 200
-        log.warning("Invalid OUROBOROS_MAX_ROUNDS, defaulting to 200")
+        log.warning("Invalid PROMETHEUS_MAX_ROUNDS, defaulting to 200")
     round_idx = 0
     try:
         while True:
@@ -708,7 +708,7 @@ def run_llm_loop(
             if msg is None:
                 # Configurable fallback priority list (Bible P3: no hardcoded behavior)
                 fallback_list_raw = os.environ.get(
-                    "OUROBOROS_MODEL_FALLBACK_LIST",
+                    "PROMETHEUS_MODEL_FALLBACK_LIST",
                     "google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6"
                 )
                 fallback_candidates = [m.strip() for m in fallback_list_raw.split(",") if m.strip()]
