@@ -24,8 +24,17 @@ _evolution_consecutive_failures = 0
 def _request_restart(ctx: ToolContext, reason: str) -> str:
     global _evolution_consecutive_failures
     
+    is_evolution = str(ctx.current_task_type or "") == "evolution"
+    
+    # Auto-restart after successful evolution: allow restart when push succeeded
+    # This answers "Why didnt you automatically restart?" - now we can!
+    if is_evolution and ctx.last_push_succeeded:
+        _evolution_consecutive_failures = 0
+        log.info(f"Evolution completed successfully - allowing restart to apply changes")
+        # Fall through to allow restart
+    
     # Circuit breaker: allow restart after N consecutive failures in evolution mode
-    if str(ctx.current_task_type or "") == "evolution" and not ctx.last_push_succeeded:
+    elif is_evolution and not ctx.last_push_succeeded:
         _evolution_consecutive_failures += 1
         if _evolution_consecutive_failures >= EVOLUTION_RESTART_CIRCUIT_BREAKER:
             # Circuit breaker tripped - allow restart anyway to break deadlock
@@ -34,7 +43,7 @@ def _request_restart(ctx: ToolContext, reason: str) -> str:
         else:
             return f"⚠️ RESTART_BLOCKED: in evolution mode, commit+push first. (failure {_evolution_consecutive_failures}/{EVOLUTION_RESTART_CIRCUIT_BREAKER})"
     
-    # Reset counter on successful path
+    # Reset counter on successful path (non-evolution or evolution with success)
     if ctx.last_push_succeeded:
         _evolution_consecutive_failures = 0
     
@@ -322,13 +331,10 @@ def get_tools() -> List[ToolEntry]:
         }, _toggle_consciousness),
         ToolEntry("switch_model", {
             "name": "switch_model",
-            "description": "Switch to a different LLM model or reasoning effort level. "
-                           "Use when you need more power (complex code, deep reasoning) "
-                           "or want to save budget (simple tasks). Takes effect on next round.",
+            "description": "Switch to a different LLM model or reasoning effort level. Use when you need more power (complex code, deep reasoning) or want to save budget (simple tasks). Takes effect on next round.",
             "parameters": {"type": "object", "properties": {
                 "model": {"type": "string", "description": "Model name (e.g. anthropic/claude-sonnet-4). Leave empty to keep current."},
-                "effort": {"type": "string", "enum": ["low", "medium", "high", "xhigh"],
-                           "description": "Reasoning effort level. Leave empty to keep current."},
+                "effort": {"type": "string", "enum": ["low", "medium", "high", "xhigh"], "description": "Reasoning effort level. Leave empty to keep current."},
             }, "required": []},
         }, _switch_model),
         ToolEntry("get_task_result", {
@@ -346,57 +352,3 @@ def get_tools() -> List[ToolEntry]:
             }, "required": ["task_id"]},
         }, _wait_for_task),
     ]
-
-
-# Tools available but not loaded by default (use enable_tools to activate)
-def _forward_to_worker(ctx: ToolContext, worker_id: int, message: str) -> str:
-    """Forward a message to a specific worker task."""
-    ctx.pending_events.append({
-        "type": "forward_to_worker",
-        "worker_id": worker_id,
-        "message": message,
-        "ts": utc_now_iso(),
-    })
-    return f"OK: message forwarded to worker {worker_id}."
-
-
-def _enable_tools(ctx: ToolContext, tools: str) -> str:
-    """Enable additional tools by name (comma-separated). Their schemas will be added to the active tool set."""
-    # This is handled by the supervisor - just log the request
-    ctx.pending_events.append({
-        "type": "enable_tools",
-        "tools": tools,
-        "ts": utc_now_iso(),
-    })
-    return f"OK: enable_tools requested: {tools}"
-
-
-def _list_available_tools(ctx: ToolContext) -> str:
-    """List all additional tools not currently in your active tool set. Returns name + description for each."""
-    # This would need to be implemented by reading the tool registry
-    # For now, return a placeholder - the supervisor handles this
-    return "Use enable_tools(tools='tool1,tool2') to activate additional tools."
-
-
-EXTRA_TOOLS = [
-    ToolEntry("forward_to_worker", {
-        "name": "forward_to_worker",
-        "description": "Forward a message to a specific worker (for multi-worker coordination).",
-        "parameters": {"type": "object", "properties": {
-            "worker_id": {"type": "integer", "description": "Worker ID to forward message to"},
-            "message": {"type": "string", "description": "Message text to forward"},
-        }, "required": ["worker_id", "message"]},
-    }, _forward_to_worker),
-    ToolEntry("enable_tools", {
-        "name": "enable_tools",
-        "description": "Enable specific additional tools by name (comma-separated). Their schemas will be added to your active tool set for the remainder of this task.",
-        "parameters": {"type": "object", "properties": {
-            "tools": {"type": "string", "description": "Comma-separated tool names to enable"},
-        }, "required": ["tools"]},
-    }, _enable_tools),
-    ToolEntry("list_available_tools", {
-        "name": "list_available_tools",
-        "description": "List all additional tools not currently in your active tool set. Returns name + description for each.",
-        "parameters": {"type": "object", "properties": {}},
-    }, _list_available_tools),
-]
