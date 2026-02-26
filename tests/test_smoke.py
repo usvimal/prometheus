@@ -134,6 +134,10 @@ EXPECTED_TOOLS = [
     "mcp_list_resources", "mcp_read_resource",
     # File watcher (v6.6.0)
     "watch_start", "watch_check", "watch_stop", "watch_list",
+    # DefiLlama tools (v6.7.0)
+    "defillama_global_tvl", "defillama_chains", "defillama_chain_tvl",
+    "defillama_protocols", "defillama_protocol_tvl",
+    "defillama_stablecoins", "defillama_yields",
     # Computer use (v6.7.0) - desktop control (mouse/keyboard/screenshot)
     "computer_screenshot", "computer_mouse", "computer_keyboard",
     "computer_list_windows", "computer_status",
@@ -434,27 +438,16 @@ def _get_function_sizes():
                 tree = ast.parse(path.read_text())
             except SyntaxError:
                 continue
-            
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    # Count lines (including docstring, body)
-                    start = node.lineno
-                    end = node.end_lineno or start
-                    lines = end - start + 1
-                    results.append((path.name, node.name, lines))
+                    func_lines = node.end_lineno - node.lineno + 1
+                    results.append((path.name, node.name, func_lines))
     return results
 
 
 def test_no_oversized_functions():
     """No function exceeds MAX_FUNCTION_LINES."""
-    oversized = [(f, n, l) for f, n, l in _get_function_sizes() if l > MAX_FUNCTION_LINES]
-    assert len(oversized) == 0, f"Oversized functions (>{MAX_FUNCTION_LINES} lines):\n" + "\n".join(
-        f"{f}:{n} has {l} lines" for f, n, l in oversized
-    )
-
-
-def test_all_functions_have_names():
-    """Every function def has a name (no lambda or missing name)."""
-    # Just import and verify the AST-based check runs
     sizes = _get_function_sizes()
-    assert len(sizes) > 0, "Should find some functions to check"
+    violations = [(f, n, l) for f, n, l in sizes if l > MAX_FUNCTION_LINES]
+    assert len(violations) == 0, f"Oversized functions (>{MAX_FUNCTION_LINES} lines):\n" + \
+        "\n".join(f"  {f}:{n} ({l} lines)" for f, n, l in violations)
