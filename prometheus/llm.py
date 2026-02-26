@@ -1,7 +1,7 @@
 """
 Prometheus — LLM client.
 
-Tri-backend: Codex (ChatGPT OAuth), MiniMax (coding plan), OpenRouter (fallback).
+Quad-backend: Kimi Code (primary), MiniMax (fallback), Codex (OAuth), OpenRouter (vision).
 Contract: chat(), default_model(), available_models(), add_usage().
 """
 
@@ -117,6 +117,12 @@ def _is_minimax_model(model: str) -> bool:
     return model.lower().startswith("minimax-")
 
 
+def _is_kimi_model(model: str) -> bool:
+    """Return True if model should be routed to Kimi Code backend."""
+    m = model.lower()
+    return m == "kimi-for-coding" or m.startswith("kimi-")
+
+
 # ---------------------------------------------------------------------------
 # MiniMax coding plan quota
 # ---------------------------------------------------------------------------
@@ -184,6 +190,8 @@ class LLMClient:
         self._codex_init_attempted = False
         self._minimax_client = None
         self._minimax_init_attempted = False
+        self._kimi_client = None
+        self._kimi_init_attempted = False
 
     def _get_codex_client(self):
         """Lazy-init Codex client. Returns None if not authenticated."""
@@ -219,6 +227,26 @@ class LLMClient:
             else:
                 log.info("MiniMax API key not found, skipping")
         return self._minimax_client
+
+
+    def _get_kimi_client(self):
+        """Lazy-init Kimi Code client. Returns None if no API key configured."""
+        if not self._kimi_init_attempted:
+            self._kimi_init_attempted = True
+            kimi_key = os.environ.get("KIMI_API_KEY", "").strip()
+            if kimi_key:
+                try:
+                    from openai import OpenAI
+                    self._kimi_client = OpenAI(
+                        base_url="https://api.kimi.com/coding/v1",
+                        api_key=kimi_key,
+                    )
+                    log.info("Kimi Code backend available")
+                except Exception as e:
+                    log.warning("Kimi Code client init failed: %s", e)
+            else:
+                log.info("Kimi API key not found, skipping")
+        return self._kimi_client
 
     def _get_client(self):
         if self._client is None:
@@ -267,6 +295,22 @@ class LLMClient:
         tool_choice: str = "auto",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Single LLM call. Routes to Codex, MiniMax, or OpenRouter based on model name."""
+        # Route to Kimi Code for kimi-* models (primary)
+        if _is_kimi_model(model):
+            kimi = self._get_kimi_client()
+            if kimi:
+                try:
+                    return self._chat_kimi(kimi, messages, model, tools,
+                                           reasoning_effort, max_tokens, tool_choice)
+                except Exception as e:
+                    log.warning("Kimi Code call failed, falling back to MiniMax: %s", e)
+                    # Fallback to MiniMax
+                    mm = self._get_minimax_client()
+                    if mm:
+                        return self._chat_minimax(mm, messages, "MiniMax-M2.5", tools,
+                                                  reasoning_effort, max_tokens, tool_choice)
+                    raise
+
         # Route to MiniMax for MiniMax-* models
         if _is_minimax_model(model):
             mm_client = self._get_minimax_client()
@@ -356,6 +400,45 @@ class LLMClient:
                 cost = self._fetch_generation_cost(gen_id)
                 if cost is not None:
                     usage["cost"] = cost
+
+        return msg, usage
+
+    def _chat_kimi(
+        self,
+        client,
+        messages,
+        model,
+        tools,
+        reasoning_effort,
+        max_tokens,
+        tool_choice,
+    ):
+        """Kimi Code chat call via OpenAI-compatible API.
+
+        Unlike MiniMax, Kimi handles role:system natively — no message preprocessing needed.
+        """
+        effort = normalize_reasoning_effort(reasoning_effort)
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.7,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+
+        resp = client.chat.completions.create(**kwargs)
+        resp_dict = resp.model_dump()
+        usage = resp_dict.get("usage") or {}
+        choices = resp_dict.get("choices") or [{}]
+        msg = (choices[0] if choices else {}).get("message") or {}
+
+        # Extract cached_tokens from prompt_tokens_details if available
+        if not usage.get("cached_tokens"):
+            prompt_details = usage.get("prompt_tokens_details") or {}
+            if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens"):
+                usage["cached_tokens"] = int(prompt_details["cached_tokens"])
 
         return msg, usage
 

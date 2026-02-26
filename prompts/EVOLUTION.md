@@ -18,7 +18,7 @@ This is not a formal plan. It's a note so you remember what you're doing.
 
 **3. Verify names** — before writing any code, `repo_read` every file you'll
 modify. Write down the EXACT function/class/import names you found.
-This is the #1 cause of broken evolution — MiniMax hallucinates names:
+This is the #1 cause of broken evolution — LLMs hallucinate names:
 - `build_context` → actual: `build_llm_messages`
 - `Env.REPO_DIR` → actual: `Env.repo_dir`
 - `call_llm` → actual: `LLMClient`
