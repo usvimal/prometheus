@@ -543,13 +543,13 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         return True
 
     if lowered.startswith("/evolve"):
-        if "start" in lowered:
+        if "start" in lowered or "on" in lowered:
             st = load_state()
             st["evolution_mode_enabled"] = True
             st["evolution_consecutive_failures"] = 0
             save_state(st)
             send_with_budget(chat_id, "Evolution enabled.")
-        elif "stop" in lowered:
+        elif "stop" in lowered or "off" in lowered:
             st = load_state()
             st["evolution_mode_enabled"] = False
             save_state(st)
@@ -561,10 +561,10 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         return True
 
     if lowered.startswith("/bg"):
-        if "start" in lowered:
+        if "start" in lowered or "on" in lowered:
             _consciousness.start()
             send_with_budget(chat_id, "Background consciousness started.")
-        elif "stop" in lowered:
+        elif "stop" in lowered or "off" in lowered:
             _consciousness.stop()
             send_with_budget(chat_id, "Background consciousness stopped.")
         else:
