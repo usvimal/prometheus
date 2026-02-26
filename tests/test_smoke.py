@@ -119,6 +119,22 @@ EXPECTED_TOOLS = [
     "list_available_tools",
     "enable_tools",
     "quick_search",
+    # Research tools (v6.5.0)
+    "python_exec", "research_search", "research_fetch", "research_synthesize",
+    # Schedule tools (v6.4.1)
+    "schedule_task_at", "schedule_task_recurring",
+    "schedule_list", "schedule_cancel", "schedule_enable",
+    # HTTP client (v6.5.0)
+    "http_request",
+    # System monitor (v6.5.0)
+    "system_monitor",
+]
+    "forward_to_worker", "generate_evolution_stats",
+    # Context management
+    "compact_context",
+    "list_available_tools",
+    "enable_tools",
+    "quick_search",
     # Research tools (v6.4.1)
     "python_exec", "research_search", "research_fetch", "research_synthesize",
     # Schedule tools
