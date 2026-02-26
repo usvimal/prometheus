@@ -453,7 +453,6 @@ def _parse_interval(interval_str: str) -> Optional[int]:
     keyword_map = {
         "hourly": 3600,
         "every hour": 3600,
-        "every hour": 3600,
         "daily": 86400,
         "every day": 86400,
         "weekly": 604800,
