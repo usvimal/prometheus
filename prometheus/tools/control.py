@@ -57,7 +57,7 @@ def _request_restart(ctx: ToolContext, reason: str) -> str:
             "expected_branch": branch, "reason": reason,
         }, ensure_ascii=False, indent=2))
     except Exception:
-        log.debug("Failed to read VERSION file or git ref for restart verification", exc_info=True)
+        log.debug("Failed to read git ref for restart verification", exc_info=True)
         pass
     ctx.pending_events.append({"type": "restart_request", "reason": reason, "ts": utc_now_iso()})
     ctx.last_push_succeeded = False
