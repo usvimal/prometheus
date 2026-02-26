@@ -41,6 +41,9 @@ if _CONFIG_FILE.exists():
             key, _, value = line.partition("=")
             key = key.strip()
             value = value.strip().strip('"').strip("'")
+            # Strip inline comments (e.g. "MiniMax-M2.5  # fallback")
+            if "  #" in value:
+                value = value.split("  #")[0].strip()
             if key and key not in os.environ:
                 os.environ[key] = value
 
@@ -750,6 +753,43 @@ def handle_one_update(offset: int) -> int:
 st = load_state()
 offset = int(st.get("tg_offset", 0))
 log.info("Starting main loop at offset %s", offset)
+
+# Background event drain thread — sends worker progress messages to Telegram
+# in near-real-time instead of waiting for the 60s long-poll to return.
+_drain_stop = threading.Event()
+
+
+def _event_drain_loop():
+    """Drain worker event queue every 1.5s, independent of Telegram polling."""
+    while not _drain_stop.is_set():
+        try:
+            event_q = get_event_q()
+            while True:
+                try:
+                    evt = event_q.get_nowait()
+                except _queue_mod.Empty:
+                    break
+                try:
+                    dispatch_event(evt, _event_ctx)
+                except Exception:
+                    log.debug("Event drain dispatch error", exc_info=True)
+            # Also drain pending events from handlers
+            while _event_ctx.pending_events:
+                try:
+                    evt = _event_ctx.pending_events.pop(0)
+                    dispatch_event(evt, _event_ctx)
+                except Exception:
+                    log.debug("Pending event drain error", exc_info=True)
+        except Exception:
+            log.debug("Event drain loop error", exc_info=True)
+        _drain_stop.wait(1.5)
+
+
+_drain_thread = threading.Thread(
+    target=_event_drain_loop, daemon=True, name="event-drain"
+)
+_drain_thread.start()
+log.info("Event drain thread started (1.5s interval)")
 
 # Main event loop
 while True:
