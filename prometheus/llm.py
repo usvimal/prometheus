@@ -230,20 +230,17 @@ class LLMClient:
 
 
     def _get_kimi_client(self):
-        """Lazy-init Kimi Code client. Returns None if no API key configured."""
+        """Lazy-init Kimi Code client. Returns API key string or None.
+
+        Kimi Code's OpenAI endpoint is locked to whitelisted agents.
+        We use the Anthropic-compatible endpoint (coding/v1/messages) via httpx.
+        """
         if not self._kimi_init_attempted:
             self._kimi_init_attempted = True
             kimi_key = os.environ.get("KIMI_API_KEY", "").strip()
             if kimi_key:
-                try:
-                    from openai import OpenAI
-                    self._kimi_client = OpenAI(
-                        base_url="https://api.kimi.com/coding/v1",
-                        api_key=kimi_key,
-                    )
-                    log.info("Kimi Code backend available")
-                except Exception as e:
-                    log.warning("Kimi Code client init failed: %s", e)
+                self._kimi_client = kimi_key  # Store key, not client object
+                log.info("Kimi Code backend available")
             else:
                 log.info("Kimi API key not found, skipping")
         return self._kimi_client
@@ -297,10 +294,10 @@ class LLMClient:
         """Single LLM call. Routes to Codex, MiniMax, or OpenRouter based on model name."""
         # Route to Kimi Code for kimi-* models (primary)
         if _is_kimi_model(model):
-            kimi = self._get_kimi_client()
-            if kimi:
+            kimi_key = self._get_kimi_client()
+            if kimi_key:
                 try:
-                    return self._chat_kimi(kimi, messages, model, tools,
+                    return self._chat_kimi(kimi_key, messages, model, tools,
                                            reasoning_effort, max_tokens, tool_choice)
                 except Exception as e:
                     log.warning("Kimi Code call failed, falling back to MiniMax: %s", e)
@@ -405,7 +402,7 @@ class LLMClient:
 
     def _chat_kimi(
         self,
-        client,
+        api_key,
         messages,
         model,
         tools,
@@ -413,34 +410,149 @@ class LLMClient:
         max_tokens,
         tool_choice,
     ):
-        """Kimi Code chat call via OpenAI-compatible API.
+        """Kimi Code chat via Anthropic-compatible endpoint (httpx).
 
-        Unlike MiniMax, Kimi handles role:system natively — no message preprocessing needed.
+        The OpenAI endpoint is locked to whitelisted agents (Claude Code, Roo Code, etc).
+        The Anthropic messages endpoint works for any client.
         """
-        effort = normalize_reasoning_effort(reasoning_effort)
-        kwargs = {
+        import httpx
+
+        # Convert OpenAI message format to Anthropic format
+        # Extract system messages into a separate 'system' field
+        system_parts = []
+        anthropic_msgs = []
+        for msg in messages:
+            role = msg.get("role", "")
+            raw_content = msg.get("content", "")
+            if role == "system":
+                text = self._flatten_content(raw_content)
+                if text.strip():
+                    system_parts.append(text.strip())
+                continue
+            # Convert tool_calls from OpenAI format to Anthropic format
+            if role == "assistant" and msg.get("tool_calls"):
+                content_blocks = []
+                text = self._flatten_content(raw_content)
+                if text:
+                    content_blocks.append({"type": "text", "text": text})
+                for tc in msg["tool_calls"]:
+                    import json as _json
+                    args = tc.get("function", {}).get("arguments", "{}")
+                    if isinstance(args, str):
+                        try:
+                            args = _json.loads(args)
+                        except _json.JSONDecodeError:
+                            args = {"raw": args}
+                    content_blocks.append({
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": tc.get("function", {}).get("name", ""),
+                        "input": args,
+                    })
+                anthropic_msgs.append({"role": "assistant", "content": content_blocks})
+                continue
+            # Convert tool results from OpenAI format to Anthropic format
+            if role == "tool":
+                anthropic_msgs.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": msg.get("tool_call_id", ""),
+                        "content": self._flatten_content(raw_content),
+                    }],
+                })
+                continue
+            # Regular user/assistant messages
+            text = self._flatten_content(raw_content)
+            anthropic_msgs.append({"role": role, "content": text})
+
+        # Merge consecutive same-role messages (Anthropic requires alternating roles)
+        merged = []
+        for msg in anthropic_msgs:
+            if merged and merged[-1]["role"] == msg["role"]:
+                # Merge content
+                prev = merged[-1]["content"]
+                curr = msg["content"]
+                if isinstance(prev, str) and isinstance(curr, str):
+                    merged[-1]["content"] = prev + chr(10) + curr
+                elif isinstance(prev, list) and isinstance(curr, list):
+                    merged[-1]["content"] = prev + curr
+                elif isinstance(prev, str) and isinstance(curr, list):
+                    merged[-1]["content"] = [{"type": "text", "text": prev}] + curr
+                elif isinstance(prev, list) and isinstance(curr, str):
+                    merged[-1]["content"] = prev + [{"type": "text", "text": curr}]
+            else:
+                merged.append(msg)
+        anthropic_msgs = merged
+
+        # Build Anthropic API request body
+        body = {
             "model": model,
-            "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": 0.7,
+            "messages": anthropic_msgs,
         }
+        if system_parts:
+            body["system"] = chr(10).join(system_parts)
         if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = tool_choice
+            # Convert OpenAI tool schema to Anthropic format
+            anthropic_tools = []
+            for t in tools:
+                func = t.get("function", t)
+                anthropic_tools.append({
+                    "name": func.get("name", ""),
+                    "description": func.get("description", ""),
+                    "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+                })
+            body["tools"] = anthropic_tools
+            if tool_choice and tool_choice != "auto":
+                body["tool_choice"] = {"type": tool_choice}
 
-        resp = client.chat.completions.create(**kwargs)
-        resp_dict = resp.model_dump()
-        usage = resp_dict.get("usage") or {}
-        choices = resp_dict.get("choices") or [{}]
-        msg = (choices[0] if choices else {}).get("message") or {}
+        resp = httpx.post(
+            "https://api.kimi.com/coding/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
-        # Extract cached_tokens from prompt_tokens_details if available
-        if not usage.get("cached_tokens"):
-            prompt_details = usage.get("prompt_tokens_details") or {}
-            if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens"):
-                usage["cached_tokens"] = int(prompt_details["cached_tokens"])
+        # Convert Anthropic response to OpenAI format (what our loop expects)
+        msg_out = {"role": "assistant", "content": None, "tool_calls": None}
+        text_parts = []
+        tool_calls = []
+        for block in data.get("content", []):
+            if block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+            elif block.get("type") == "tool_use":
+                import json as _json
+                tool_calls.append({
+                    "id": block.get("id", ""),
+                    "type": "function",
+                    "function": {
+                        "name": block.get("name", ""),
+                        "arguments": _json.dumps(block.get("input", {})),
+                    },
+                })
+        if text_parts:
+            msg_out["content"] = chr(10).join(text_parts)
+        if tool_calls:
+            msg_out["tool_calls"] = tool_calls
 
-        return msg, usage
+        # Build usage dict (Anthropic format -> OpenAI format)
+        usage_data = data.get("usage", {})
+        usage = {
+            "prompt_tokens": usage_data.get("input_tokens", 0),
+            "completion_tokens": usage_data.get("output_tokens", 0),
+            "total_tokens": usage_data.get("input_tokens", 0) + usage_data.get("output_tokens", 0),
+            "cached_tokens": usage_data.get("cache_read_input_tokens", 0),
+            "cache_write_tokens": usage_data.get("cache_creation_input_tokens", 0),
+        }
+
+        return msg_out, usage
 
     @staticmethod
     def _flatten_content(content: Any) -> str:
@@ -607,7 +719,9 @@ class LLMClient:
         env_model = os.environ.get("PROMETHEUS_MODEL", "")
         if env_model:
             return env_model
-        # If Codex is available, default to Codex model
+        # Priority: Kimi > Codex > OpenRouter fallback
+        if self._get_kimi_client():
+            return "kimi-for-coding"
         if self._get_codex_client():
             return DEFAULT_CODEX_MODEL
         return "anthropic/claude-sonnet-4.6"
@@ -623,7 +737,11 @@ class LLMClient:
             for cm in ["codex-mini", "o4-mini", "gpt-4.1"]:
                 if cm not in models:
                     models.append(cm)
-        # Add MiniMax models if configured
+        # Add Kimi models if configured
+        if self._get_kimi_client():
+            if "kimi-for-coding" not in models:
+                models.append("kimi-for-coding")
+        # Add MiniMax models if configured (fallback)
         if self._get_minimax_client():
             for mm in ["MiniMax-M2.5", "MiniMax-M2.5-highspeed"]:
                 if mm not in models:

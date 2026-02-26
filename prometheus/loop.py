@@ -61,6 +61,8 @@ _MODEL_PRICING_STATIC = {
     "x-ai/grok-3-mini": (0.30, 0.03, 0.50),
     "qwen/qwen3.5-plus-02-15": (0.40, 0.04, 2.40),
     # MiniMax models (subscription pricing is $0, but track equivalent cost for analytics)
+    # Kimi Code (subscription, track equivalent cost)
+    "kimi-for-coding": (0.60, 0.06, 2.40),
     "MiniMax-M2.5": (0.30, 0.03, 1.20),
     "MiniMax-M2.5-highspeed": (0.30, 0.03, 2.40),
     "minimax-m2.5": (0.30, 0.03, 1.20),
@@ -716,10 +718,10 @@ def run_llm_loop(
                 max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
             )
 
-            # No model fallback — MiniMax is the only LLM
+            # No model fallback — Kimi is primary, MiniMax is fallback
             if msg is None:
                 return (
-                    f"\u26a0\ufe0f MiniMax returned no response after {max_retries} attempts. "
+                    f"\u26a0\ufe0f LLM returned no response after {max_retries} attempts. "
                     f"The API may be temporarily unavailable. Try again later."
                 ), accumulated_usage, llm_trace
 
