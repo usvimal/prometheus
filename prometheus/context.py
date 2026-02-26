@@ -380,93 +380,454 @@ def build_llm_messages(
     if needs_full_context:
         static_text += "\n\n## README.md\n\n" + clip_text(readme_md, 180000)
 
-    # Semi-stable
-    semi_text = "\n\n".join(_build_memory_sections(memory))
+    # Semi-stable content: identity, scratchpad, knowledge
+    # These change ~once per task, not per round
+    semi_stable_parts = []
+    semi_stable_parts.extend(_build_memory_sections(memory))
 
-    # Dynamic
-    runtime_section = _build_runtime_section(env, task)
-    recent_sections = _build_recent_sections(memory, env, task.get("id", ""))
-    dynamic_text = runtime_section + "\n\n" + "\n\n".join(recent_sections)
+    kb_index_path = env.drive_path("memory/knowledge/_index.md")
+    if kb_index_path.exists():
+        kb_index = kb_index_path.read_text(encoding="utf-8")
+        if kb_index.strip():
+            semi_stable_parts.append("## Knowledge base\n\n" + clip_text(kb_index, 50000))
 
-    # Add health invariants to dynamic (Bible P0: System Invariants)
-    health_invariants = _build_health_invariants(env)
-    if health_invariants:
-        dynamic_text += "\n\n" + health_invariants
+    semi_stable_text = "\n\n".join(semi_stable_parts)
 
-    # --- Build messages ---
-    messages = []
+    # Dynamic content: changes every round
+    dynamic_parts = [
+        "## Drive state\n\n" + clip_text(state_json, 90000),
+        _build_runtime_section(env, task),
+    ]
 
-    # System message (cached blocks 1 + 2)
-    system_content = static_text
-    if semi_text:
-        system_content += "\n\n" + semi_text
-    messages.append({
-        "role": "system",
-        "content": system_content,
-    })
+    # Health invariants — surfaces anomalies for LLM-first self-detection (Bible P0+P3)
+    health_section = _build_health_invariants(env)
+    if health_section:
+        dynamic_parts.append(health_section)
 
-    # Assistant messages from prior rounds (context window + cap estimation)
-    prior_rounds = task.get("prior_rounds", [])
-    for rnd in prior_rounds:
-        if rnd.get("role") == "assistant":
-            messages.append({"role": "assistant", "content": rnd.get("content", "")})
-        elif rnd.get("role") == "user":
-            messages.append({"role": "user", "content": rnd.get("content", "")})
-        # Skip 'tool' role - handled separately in loop.py
+    dynamic_parts.extend(_build_recent_sections(memory, env, task_id=task.get("id", "")))
 
-    # Task user message (always last, uncached)
-    user_content = _build_user_content(task)
-    messages.append({"role": "user", "content": user_content})
+    if str(task.get("type") or "") == "review" and review_context_builder is not None:
+        try:
+            review_ctx = review_context_builder()
+            if review_ctx:
+                dynamic_parts.append(review_ctx)
+        except Exception:
+            log.debug("Failed to build review context", exc_info=True)
+            pass
 
-    # Tool results from prior rounds
-    for rnd in prior_rounds:
-        if rnd.get("role") == "tool":
-            tool_name = rnd.get("name", "unknown")
-            tool_result = rnd.get("content", "")
-            messages.append({
-                "role": "tool",
-                "name": tool_name,
-                "content": tool_result,
-            })
+    dynamic_text = "\n\n".join(dynamic_parts)
 
-    # Review context (if provided)
-    if review_context_builder:
-        review_text = review_context_builder()
-        if review_text:
-            messages.append({
-                "role": "system",
-                "name": "review_context",
-                "content": "\n## Review Context\n\n" + review_text,
-            })
+    # System message with 3 content blocks for optimal caching
+    messages: List[Dict[str, Any]] = [
+        {
+            "role": "system",
+            "content": [
+                {
+                    "type": "text",
+                    "text": static_text,
+                    "cache_control": {"type": "ephemeral", "ttl": "1h"},
+                },
+                {
+                    "type": "text",
+                    "text": semi_stable_text,
+                    "cache_control": {"type": "ephemeral"},
+                },
+                {
+                    "type": "text",
+                    "text": dynamic_text,
+                },
+            ],
+        },
+        {"role": "user", "content": _build_user_content(task)},
+    ]
 
-    # --- Token estimation for cap decisions ---
-    total_chars = sum(estimate_tokens(m["content"]) * 4 for m in messages)
-    cap_info = {"total_chars": total_chars, "msg_count": len(messages)}
+    # --- Soft-cap token trimming ---
+    messages, cap_info = apply_message_token_soft_cap(messages, 200000)
 
     return messages, cap_info
 
 
+def apply_message_token_soft_cap(
+    messages: List[Dict[str, Any]],
+    soft_cap_tokens: int,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """
+    Trim prunable context sections if estimated tokens exceed soft cap.
+
+    Returns (pruned_messages, cap_info_dict).
+    """
+    def _estimate_message_tokens(msg: Dict[str, Any]) -> int:
+        """Estimate tokens for a message, handling multipart content."""
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            # Multipart content: sum tokens from all text blocks
+            total = 0
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    total += estimate_tokens(str(block.get("text", "")))
+            return total + 6
+        return estimate_tokens(str(content)) + 6
+
+    estimated = sum(_estimate_message_tokens(m) for m in messages)
+    info: Dict[str, Any] = {
+        "estimated_tokens_before": estimated,
+        "estimated_tokens_after": estimated,
+        "soft_cap_tokens": soft_cap_tokens,
+        "trimmed_sections": [],
+    }
+
+    if soft_cap_tokens <= 0 or estimated <= soft_cap_tokens:
+        return messages, info
+
+    # Prune log summaries from the dynamic text block in multipart system messages
+    prunable = ["## Recent chat", "## Recent progress", "## Recent tools", "## Recent events", "## Supervisor"]
+    pruned = copy.deepcopy(messages)
+    for prefix in prunable:
+        if estimated <= soft_cap_tokens:
+            break
+        for i, msg in enumerate(pruned):
+            content = msg.get("content")
+
+            # Handle multipart content (trim from dynamic text block)
+            if isinstance(content, list) and msg.get("role") == "system":
+                # Find the dynamic text block (the block without cache_control)
+                for j, block in enumerate(content):
+                    if (isinstance(block, dict) and
+                        block.get("type") == "text" and
+                        "cache_control" not in block):
+                        text = block.get("text", "")
+                        if prefix in text:
+                            # Remove this section from the dynamic text
+                            lines = text.split("\n\n")
+                            new_lines = []
+                            skip_section = False
+                            for line in lines:
+                                if line.startswith(prefix):
+                                    skip_section = True
+                                    info["trimmed_sections"].append(prefix)
+                                    continue
+                                if line.startswith("##"):
+                                    skip_section = False
+                                if not skip_section:
+                                    new_lines.append(line)
+
+                            block["text"] = "\n\n".join(new_lines)
+                            estimated = sum(_estimate_message_tokens(m) for m in pruned)
+                            break
+                break
+
+            # Handle legacy string content (for backwards compatibility)
+            elif isinstance(content, str) and content.startswith(prefix):
+                pruned.pop(i)
+                info["trimmed_sections"].append(prefix)
+                estimated = sum(_estimate_message_tokens(m) for m in pruned)
+                break
+
+    info["estimated_tokens_after"] = estimated
+    return pruned, info
+
+
+def _compact_tool_result(msg: dict, content: str) -> dict:
+    """
+    Compact a single tool result message.
+
+    Args:
+        msg: Original tool result message dict
+        content: Content string to compact
+
+    Returns:
+        Compacted message dict
+    """
+    is_error = content.startswith("⚠️")
+    # Create a short summary
+    if is_error:
+        summary = content[:200]  # Keep error details
+    else:
+        # Keep first line or first 80 chars
+        first_line = content.split('\n')[0][:80]
+        char_count = len(content)
+        summary = f"{first_line}... ({char_count} chars)" if char_count > 80 else content[:200]
+
+    return {**msg, "content": summary}
+
+
+def _compact_assistant_msg(msg: dict) -> dict:
+    """
+    Compact assistant message content and tool_call arguments.
+
+    Args:
+        msg: Original assistant message dict
+
+    Returns:
+        Compacted message dict
+    """
+    compacted_msg = dict(msg)
+
+    # Trim content (progress notes)
+    content = msg.get("content") or ""
+    if len(content) > 200:
+        content = content[:200] + "..."
+    compacted_msg["content"] = content
+
+    # Strip reasoning_details from OLD rounds (save tokens).
+    # Recent rounds keep them for MiniMax multi-turn coherence.
+    compacted_msg.pop("reasoning_details", None)
+    compacted_msg.pop("reasoning_content", None)
+
+    # Compact tool_call arguments
+    if msg.get("tool_calls"):
+        compacted_tool_calls = []
+        for tc in msg["tool_calls"]:
+            compacted_tc = dict(tc)
+
+            # Always preserve id and function name
+            if "function" in compacted_tc:
+                func = dict(compacted_tc["function"])
+                args_str = func.get("arguments", "")
+
+                if args_str:
+                    compacted_tc["function"] = _compact_tool_call_arguments(
+                        func["name"], args_str
+                    )
+                else:
+                    compacted_tc["function"] = func
+
+            compacted_tool_calls.append(compacted_tc)
+
+        compacted_msg["tool_calls"] = compacted_tool_calls
+
+    return compacted_msg
+
+
+def compact_tool_history(messages: list, keep_recent: int = 6) -> list:
+    """
+    Compress old tool call/result message pairs into compact summaries.
+
+    Keeps the last `keep_recent` tool-call rounds intact (they may be
+    referenced by the LLM). Older rounds get their tool results truncated
+    to a short summary line, and tool_call arguments are compacted.
+
+    This dramatically reduces prompt tokens in long tool-use conversations
+    without losing important context (the tool names and whether they succeeded
+    are preserved).
+    """
+    # Find all indices that are tool-call assistant messages
+    # (messages with tool_calls field)
+    tool_round_starts = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            tool_round_starts.append(i)
+
+    if len(tool_round_starts) <= keep_recent:
+        return messages  # Nothing to compact
+
+    # Rounds to compact: all except the last keep_recent
+    rounds_to_compact = set(tool_round_starts[:-keep_recent])
+
+    # Build compacted message list
+    result = []
+    for i, msg in enumerate(messages):
+        # Skip system messages with multipart content (prompt caching format)
+        if msg.get("role") == "system" and isinstance(msg.get("content"), list):
+            result.append(msg)
+            continue
+
+        if msg.get("role") == "tool" and i > 0:
+            # Check if the preceding assistant message (with tool_calls)
+            # is one we want to compact
+            # Find which round this tool result belongs to
+            parent_round = None
+            for rs in reversed(tool_round_starts):
+                if rs < i:
+                    parent_round = rs
+                    break
+
+            if parent_round is not None and parent_round in rounds_to_compact:
+                # Compact this tool result
+                content = str(msg.get("content") or "")
+                result.append(_compact_tool_result(msg, content))
+                continue
+
+        # For compacted assistant messages, also trim the content (progress notes)
+        # AND compact tool_call arguments
+        if i in rounds_to_compact and msg.get("role") == "assistant":
+            result.append(_compact_assistant_msg(msg))
+            continue
+
+        result.append(msg)
+
+    return result
+
+
+def compact_tool_history_llm(messages: list, keep_recent: int = 6) -> list:
+    """LLM-driven compaction: summarize old tool results via a light model.
+
+    Falls back to simple truncation (compact_tool_history) on any error.
+    Called when the agent explicitly invokes the compact_context tool.
+    """
+    tool_round_starts = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            tool_round_starts.append(i)
+
+    if len(tool_round_starts) <= keep_recent:
+        return messages
+
+    rounds_to_compact = set(tool_round_starts[:-keep_recent])
+
+    old_results = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") != "tool" or i == 0:
+            continue
+        parent_round = None
+        for rs in reversed(tool_round_starts):
+            if rs < i:
+                parent_round = rs
+                break
+        if parent_round is not None and parent_round in rounds_to_compact:
+            content = str(msg.get("content") or "")
+            if len(content) > 120:
+                tool_call_id = msg.get("tool_call_id", "")
+                old_results.append({"idx": i, "tool_call_id": tool_call_id, "content": content[:1500]})
+
+    if not old_results:
+        return compact_tool_history(messages, keep_recent=keep_recent)
+
+    batch_text = "\n---\n".join(
+        f"[{r['tool_call_id']}]\n{r['content']}" for r in old_results[:20]
+    )
+    prompt = (
+        "Summarize each tool result below into 1-2 lines of key facts. "
+        "Preserve errors, file paths, and important values. "
+        "Output one summary per [id] block, same order.\n\n" + batch_text
+    )
+
+    try:
+        from prometheus.llm import LLMClient, DEFAULT_LIGHT_MODEL
+        light_model = os.environ.get("OUROBOROS_MODEL_LIGHT") or DEFAULT_LIGHT_MODEL
+        client = LLMClient()
+        resp_msg, _usage = client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            model=light_model,
+            reasoning_effort="low",
+            max_tokens=1024,
+        )
+        summary_text = resp_msg.get("content") or ""
+        if not summary_text.strip():
+            raise ValueError("empty summary response")
+    except Exception:
+        log.warning("LLM compaction failed, falling back to truncation", exc_info=True)
+        return compact_tool_history(messages, keep_recent=keep_recent)
+
+    summary_lines = summary_text.strip().split("\n")
+    summary_map: Dict[str, str] = {}
+    current_id = None
+    current_lines: list = []
+    for line in summary_lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and "]" in stripped:
+            if current_id is not None:
+                summary_map[current_id] = " ".join(current_lines).strip()
+            bracket_end = stripped.index("]")
+            current_id = stripped[1:bracket_end]
+            rest = stripped[bracket_end + 1:].strip()
+            current_lines = [rest] if rest else []
+        elif current_id is not None:
+            current_lines.append(stripped)
+    if current_id is not None:
+        summary_map[current_id] = " ".join(current_lines).strip()
+
+    idx_to_summary = {}
+    for r in old_results:
+        s = summary_map.get(r["tool_call_id"])
+        if s:
+            idx_to_summary[r["idx"]] = s
+
+    result = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "system" and isinstance(msg.get("content"), list):
+            result.append(msg)
+            continue
+        if i in idx_to_summary:
+            result.append({**msg, "content": idx_to_summary[i]})
+            continue
+        if msg.get("role") == "tool" and i > 0:
+            parent_round = None
+            for rs in reversed(tool_round_starts):
+                if rs < i:
+                    parent_round = rs
+                    break
+            if parent_round is not None and parent_round in rounds_to_compact:
+                content = str(msg.get("content") or "")
+                result.append(_compact_tool_result(msg, content))
+                continue
+        if i in rounds_to_compact and msg.get("role") == "assistant":
+            result.append(_compact_assistant_msg(msg))
+            continue
+        result.append(msg)
+
+    return result
+
+
+def _compact_tool_call_arguments(tool_name: str, args_json: str) -> Dict[str, Any]:
+    """
+    Compact tool call arguments for old rounds.
+
+    For tools with large content payloads, remove the large field and add _truncated marker.
+    For other tools, truncate arguments if > 500 chars.
+
+    Args:
+        tool_name: Name of the tool
+        args_json: JSON string of tool arguments
+
+    Returns:
+        Dict with 'name' and 'arguments' (JSON string, possibly compacted)
+    """
+    # Tools with large content fields that should be stripped
+    LARGE_CONTENT_TOOLS = {
+        "repo_write_commit": "content",
+        "drive_write": "content",
+        "claude_code_edit": "prompt",
+        "update_scratchpad": "content",
+    }
+
+    try:
+        args = json.loads(args_json)
+
+        # Check if this tool has a large content field to remove
+        if tool_name in LARGE_CONTENT_TOOLS:
+            large_field = LARGE_CONTENT_TOOLS[tool_name]
+            if large_field in args and args[large_field]:
+                args[large_field] = {"_truncated": True}
+                return {"name": tool_name, "arguments": json.dumps(args, ensure_ascii=False)}
+
+        # For other tools, if args JSON is > 500 chars, compact values
+        # CRITICAL: Must produce valid JSON — MiniMax rejects invalid JSON
+        # in conversation history, causing 400 errors on all retries.
+        if len(args_json) > 500:
+            for k, v in list(args.items()):
+                if isinstance(v, str) and len(v) > 100:
+                    args[k] = v[:100] + "...[truncated]"
+                elif isinstance(v, list) and len(json.dumps(v, ensure_ascii=False)) > 200:
+                    args[k] = ["...[list truncated]"]
+                elif isinstance(v, dict) and len(json.dumps(v, ensure_ascii=False)) > 200:
+                    args[k] = {"_truncated": True}
+            return {"name": tool_name, "arguments": json.dumps(args, ensure_ascii=False)}
+
+        # Otherwise return unchanged
+        return {"name": tool_name, "arguments": args_json}
+
+    except (json.JSONDecodeError, Exception):
+        # If we can't parse JSON, return valid empty JSON (not broken truncation)
+        return {"name": tool_name, "arguments": "{}"}
+
+
 def _safe_read(path: pathlib.Path, fallback: str = "") -> str:
-    """Read file, return fallback on error."""
+    """Read a file, returning fallback if it doesn't exist or errors."""
     try:
         if path.exists():
-            return path.read_text(encoding="utf-8")
+            return read_text(path)
     except Exception:
-        log.debug("Failed to read %s", path, exc_info=True)
+        log.debug(f"Failed to read file {path} in _safe_read", exc_info=True)
+        pass
     return fallback
-
-
-def summarize_chat(messages: List[Dict[str, Any]]) -> str:
-    """Summarize chat messages for context window."""
-    if not messages:
-        return ""
-    lines = []
-    for m in messages[-20:]:
-        role = m.get("role", "?")
-        content = m.get("content", "")
-        if isinstance(content, list):
-            # Skip image parts in summary
-            text_parts = [p.get("text", "") for p in content if p.get("type") == "text"]
-            content = " [multimedia] ".join(text_parts)
-        lines.append(f"**{role}**: {clip_text(content, 300)}")
-    return "\n".join(lines)
