@@ -692,12 +692,12 @@ def handle_one_update(offset: int) -> int:
         # Update timestamp
         _last_message_ts = time.time()
 
-        # Enqueue chat task
-        handle_chat_direct(
-            chat_id=chat_id,
-            text=text,
-            image_data=image_data,
-        )
+        # Enqueue chat task in a thread so main loop can drain events
+        threading.Thread(
+            target=handle_chat_direct,
+            args=(chat_id, text, image_data),
+            daemon=True,
+        ).start()
 
     return offset
 
