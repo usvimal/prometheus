@@ -17,7 +17,6 @@ import urllib.parse
 from typing import Any, Dict, List, Optional
 
 from prometheus.tools.registry import ToolContext, ToolEntry
-from prometheus.tools.knowledge import _write_topic
 
 
 def _ddg_search(query: str, num_results: int = 10) -> List[Dict[str, str]]:
@@ -33,8 +32,6 @@ def _ddg_search(query: str, num_results: int = 10) -> List[Dict[str, str]]:
             html = resp.read().decode("utf-8", errors="ignore")
         
         # Parse results - DuckDuckGo HTML format
-        # <a class="result__a" href="URL">Title</a>
-        # <a class="result__snippet" href="...">Snippet</a>
         link_pattern = r'<a class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>'
         snippet_pattern = r'<a class="result__snippet"[^>]*>([^<]*)</a>'
         
@@ -51,35 +48,6 @@ def _ddg_search(query: str, num_results: int = 10) -> List[Dict[str, str]]:
                     "url": url[:300],
                     "title": title[:200] if title else "No title",
                     "snippet": snippet[:300] if snippet else ""
-                })
-    except Exception as e:
-        return [{"error": str(e)}]
-    return results
-
-
-def _textise_search(query: str, num_results: int = 10) -> List[Dict[str, str]]:
-    """Search using textise dot iitty (textise dot iitty)."""
-    results = []
-    try:
-        import urllib.request
-        url = f"https://duckduckgo.com/html/?q={urllib.parse.quote_plus(query)}"
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-        
-        # Same parsing as ddg_search
-        link_pattern = r'<a class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>'
-        links = re.findall(link_pattern, html)
-        
-        for url, title in links[:num_results]:
-            title = re.sub(r'<[^>]+>', '', title).strip()
-            if url.startswith("http"):
-                results.append({
-                    "url": url[:300],
-                    "title": title[:200] if title else "No title",
-                    "snippet": ""
                 })
     except Exception as e:
         return [{"error": str(e)}]
@@ -117,10 +85,6 @@ def _research_search(ctx: ToolContext, query: str, num_results: int = 10) -> str
     Uses DuckDuckGo HTML. Returns JSON with results.
     """
     results = _ddg_search(query, num_results)
-    
-    if not results:
-        # Try fallback
-        results = _textise_search(query, num_results)
     
     if not results:
         return json.dumps({
