@@ -319,3 +319,18 @@ def _handle_budget_exhausted(evt: Dict[str, Any], ctx: Any) -> None:
             "spent_usd": spent,
         },
     )
+
+
+# ============================================================================
+# Control Events
+# ============================================================================
+
+
+@on_event("restart_request")
+def _handle_restart_request(evt: Dict[str, Any], ctx: Any) -> None:
+    """Handle restart request events - trigger supervisor restart."""
+    reason = evt.get("reason", "Unknown reason")
+    logger.info(f"Processing restart request: {reason}")
+    # Import here to avoid circular imports
+    from supervisor.git_ops import safe_restart
+    safe_restart(reason)
