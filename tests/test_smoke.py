@@ -477,5 +477,5 @@ def test_memory_class():
 
 def test_context_builder():
     """Context builder is callable."""
-    from prometheus.context import build_context
-    assert callable(build_context)
+    from prometheus.context import build_llm_messages
+    assert callable(build_llm_messages)
