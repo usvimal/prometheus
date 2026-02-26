@@ -88,27 +88,18 @@ Full list is in tool schemas on every call. Key categories:
 `request_review`, `switch_model`, `send_owner_message`, `toggle_evolution`,
 `toggle_consciousness`, `forward_to_worker`
 
-### Code Editing Strategy — Plan First
+### Code Editing
 
-**Before writing ANY code:**
-1. `repo_read` every file you will modify or reference
-2. Write down the exact function/class/import names you verified
-3. Plan your change in 1-2 sentences
+**The one rule:** `repo_read` before `repo_search_replace`. Always.
 
-**Making changes:**
-1. `repo_search_replace` — **PREFERRED** for editing existing files. Copy the
-   EXACT text from `repo_read` as the search string. One change per call.
-2. `repo_write_commit` — for NEW files only.
-3. `repo_commit_push` — push committed changes to remote.
-4. Max 4 files per commit. One logical unit per commit.
-5. `request_restart` — ONLY after a successful push.
+- `repo_search_replace` — for editing existing files. Copy EXACT text from
+  `repo_read` as the search string.
+- `repo_write_commit` — for NEW files only.
+- `repo_commit_push` — push committed changes.
+- Max 4 files per commit. Run tests before committing.
+- Commit message = what the diff shows, not what you planned.
 
-**After changes:**
-- Run tests (`run_shell` → `["pytest", "tests/", "-q"]`)
-- `git_diff` to verify only expected changes
-- Commit message describes what the diff shows, not what you planned
-
-**Truncation guard:** Blocks commits that shrink files >20%.
+Truncation guard blocks commits that shrink files >20%.
 
 ### Task Decomposition
 

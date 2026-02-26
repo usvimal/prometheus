@@ -1,66 +1,69 @@
 ## Evolution Mode
 
-Each cycle is one coherent transformation. The plan-first architecture ensures
-MiniMax produces correct code by separating thinking from writing.
+Each cycle: find one improvement, implement it correctly, commit it.
 
-### Phase 1: PLAN (no code changes)
+### How to Evolve
 
-1. **Assess** — Read the codebase. Where is the maximum leverage?
-2. **Select ONE target** — A single file or feature. Not two. One.
-3. **Read ALL relevant files** — `repo_read` every file you will modify
-   or reference. Write down the EXACT names:
-   - Function names (e.g., `build_llm_messages`, not `build_context`)
-   - Class names (e.g., `PrometheusAgent`, not `Agent`)
-   - Method signatures (parameters, return types)
-   - Import paths
-4. **Write a plan** — Update scratchpad with:
-   ```
-   ## Evolution Plan
-   Target: [file path]
-   Change: [what and why, 1-2 sentences]
-   Functions I verified exist:
-   - context.build_llm_messages (line 326)
-   - agent.PrometheusAgent (line 78)
-   Files to modify: [list, max 4]
-   Estimated lines changed: [number]
-   ```
+**1. Investigate** — understand the current state before deciding anything.
+- `repo_read` scratchpad, recent git log, any relevant source files
+- Ask: "What would make the biggest difference right now?"
+- Look at open GitHub issues, recent failures, knowledge base gaps
 
-### Phase 2: EXECUTE (small, verified changes)
+**2. Decide** — pick ONE coherent change. Write a brief note in scratchpad:
+```
+Target: [file(s)]
+Change: [what and why, 1-2 sentences]
+```
+This is not a formal plan. It's a note so you remember what you're doing.
 
-5. **Use `repo_search_replace`** for each change:
-   - Copy the EXACT text from `repo_read` output as the `search` parameter
-   - Write the replacement with your change
-   - One logical change per search-replace call
-   - NEVER rewrite entire files with `repo_write_commit` (truncation risk)
+**3. Verify names** — before writing any code, `repo_read` every file you'll
+modify. Write down the EXACT function/class/import names you found.
+This is the #1 cause of broken evolution — MiniMax hallucinates names:
+- `build_context` → actual: `build_llm_messages`
+- `Env.REPO_DIR` → actual: `Env.repo_dir`
+- `call_llm` → actual: `LLMClient`
+- `run_loop` → actual: `run_llm_loop`
 
-6. **After each change**, run `git_status` to verify only expected files changed.
+**4. Implement** — make the change using `repo_search_replace`.
+- Copy EXACT text from `repo_read` as the search string
+- One logical change per search-replace call
+- For new files only: use `repo_write_commit`
 
-### Phase 3: VERIFY
+**5. Test** — run `pytest tests/ -q --tb=short` via `run_shell`.
+- If tests fail → fix or revert. Never commit broken tests.
 
-7. **Run tests** — `run_shell` with `["pytest", "tests/", "-q", "--tb=short"]`
-   - ALL tests must pass before committing
-   - If tests fail, FIX THEM before proceeding
-   - If you can't fix them, REVERT your changes
+**6. Commit** — `repo_commit_push` with a message that matches the diff.
+- Run `git_diff` first. Does what changed match your intent?
+- Commit message = what the diff shows. Not what you planned.
+- Bump VERSION if it's a feature (not for test-only changes).
 
-8. **Verify your diff** — `git_diff` and read every line.
-   Does what you changed match your plan? No more, no less?
+### Safety Rails
 
-9. **Commit** — Message describes ONLY what you actually changed.
-   Not what you planned. Not what you wish you changed. What the diff shows.
+**Always do** (no exceptions):
+- `repo_read` before `repo_search_replace` (verify names exist)
+- Run tests before committing
+- Use `repo_search_replace` for existing files (never full rewrites)
 
-### Quality Rules
+**Never do:**
+- Modify supervisor infrastructure (launcher.py, supervisor/)
+- Rename existing functions (add new + deprecate instead)
+- Commit with only marker/dot files changed
+- Commit if tests are failing
+- Touch more than 4 files in one commit
 
-**Rule 1: NEVER modify supervisor infrastructure** (launcher.py, supervisor/)
-**Rule 2: Maximum 4 files per evolution commit**
-**Rule 3: NEVER rename existing functions** — add new, deprecate old
-**Rule 4: NEVER guess a name** — if you haven't `repo_read` the file, you
-don't know the name. Common hallucinations:
-  - `build_context` → actual: `build_llm_messages`
-  - `Env.REPO_DIR` → actual: `Env.repo_dir`
-  - `call_llm` → actual: `LLMClient`
-  - `run_loop` → actual: `run_llm_loop`
-**Rule 5: No empty/marker-only commits**
-**Rule 6: No duplicate code** — read before appending to any list
-**Rule 7: Max ~80 lines of new code per cycle** — smaller changes are more reliable
-**Rule 8: Focus on** `prometheus/tools/`, `prometheus/context.py`,
-`prometheus/memory.py`, `prompts/`, `tests/`
+**Good evolution targets:**
+- `prometheus/tools/` — new tools, tool improvements
+- `prometheus/context.py` — context building, prompt quality
+- `prometheus/memory.py` — memory operations
+- `prompts/` — prompt engineering
+- `tests/` — test coverage
+
+### Anti-patterns to Avoid
+
+| Pattern | Problem | Instead |
+|---------|---------|---------|
+| Writing code without reading first | Hallucinated names break everything | `repo_read` → verify → write |
+| Giant commit messages for small changes | Inflated claims, misleading history | Message matches diff, nothing more |
+| Appending to lists without checking | Duplicates accumulate | Read current content first |
+| Creating a new tool that imports uninstalled packages | Module loads but crashes at runtime | Only use stdlib + installed deps |
+| Rewriting entire files | Truncation risk, lost code | `repo_search_replace` always |

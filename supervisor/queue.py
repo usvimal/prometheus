@@ -350,18 +350,20 @@ def build_evolution_task_text(cycle: int) -> str:
     """Build evolution task text with actionable instructions."""
     return (
         f"EVOLUTION #{cycle}\n\n"
-        "You are running an evolution cycle. DO NOT monitor or wait for tasks. "
-        "YOU are the task — do the work directly:\n"
-        "1. Read your scratchpad and recent code changes (git log)\n"
-        "2. Identify one high-leverage improvement to the codebase\n"
-        "3. Implement it — edit files, write code\n"
-        "4. Test it — run the relevant tests or smoke-check\n"
-        "5. Commit with a version bump and clear message\n"
-        "6. Report what you did to the creator\n\n"
-        "NEVER call wait_for_task or get_task_result on your own task ID. "
-        "NEVER just read logs and monitor. ACT."
+        "You are the evolution task. Do the work directly.\n\n"
+        "INVESTIGATE first:\n"
+        "- repo_read scratchpad for context and unfinished work\n"
+        "- git log --oneline -10 to see recent changes\n"
+        "- Check open GitHub issues for user-facing improvements\n\n"
+        "DECIDE on one improvement. Note it in scratchpad.\n\n"
+        "IMPLEMENT:\n"
+        "- repo_read every file before editing (verify exact names)\n"
+        "- repo_search_replace for changes (never rewrite whole files)\n"
+        "- Run pytest tests/ -q after changes\n"
+        "- git_diff to verify changes match your intent\n"
+        "- Commit and push, then report what you did\n\n"
+        "If tests fail, fix them or revert. Never commit broken code."
     )
-
 
 def build_review_task_text(reason: str) -> str:
     """Build review task text. Minimal trigger — LLM decides scope and depth."""
