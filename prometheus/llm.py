@@ -430,19 +430,15 @@ class LLMClient:
         # Convert system messages — MiniMax rejects role: system
         mm_messages = self._prep_minimax_messages(messages)
 
-        # Map reasoning_effort to MiniMax thinking effort
-        effort = normalize_reasoning_effort(reasoning_effort)
-        effort_map = {"none": "none", "minimal": "low", "low": "low",
-                      "medium": "medium", "high": "high", "xhigh": "high"}
-        mm_effort = effort_map.get(effort, "medium")
-
+        # MiniMax M2.5 recommended parameters (trained at these values)
         kwargs: Dict[str, Any] = {
             "model": model,
             "messages": mm_messages,
             "max_tokens": max_tokens,
+            "temperature": 1.0,
+            "top_p": 0.95,
             "extra_body": {
                 "reasoning_split": True,
-                "thinking": {"effort": mm_effort},
             },
         }
         if tools:

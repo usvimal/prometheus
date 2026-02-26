@@ -42,6 +42,10 @@ _MODEL_PRICING_STATIC = {
     "google/gemini-3-pro-preview": (2.0, 0.20, 12.0),
     "x-ai/grok-3-mini": (0.30, 0.03, 0.50),
     "qwen/qwen3.5-plus-02-15": (0.40, 0.04, 2.40),
+    # MiniMax models (subscription pricing is $0, but track equivalent cost for analytics)
+    "MiniMax-M2.5": (0.30, 0.03, 1.20),
+    "MiniMax-M2.5-highspeed": (0.30, 0.03, 2.40),
+    "minimax-m2.5": (0.30, 0.03, 1.20),
 }
 
 _pricing_fetched = False
@@ -741,8 +745,14 @@ def run_llm_loop(
             if not tool_calls:
                 return _handle_text_response(content, llm_trace, accumulated_usage)
 
-            # Process tool calls
-            messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
+            # Process tool calls — preserve reasoning for MiniMax multi-turn coherence
+            assistant_msg = {"role": "assistant", "content": content or "", "tool_calls": tool_calls}
+            # MiniMax M2.5: reasoning_details MUST be passed back in subsequent turns.
+            # Stripping them degrades multi-turn performance by ~40%.
+            reasoning = msg.get("reasoning_details") or msg.get("reasoning_content")
+            if reasoning:
+                assistant_msg["reasoning_details"] = reasoning
+            messages.append(assistant_msg)
 
             if content and content.strip():
                 emit_progress(content.strip())

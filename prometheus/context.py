@@ -541,6 +541,11 @@ def _compact_assistant_msg(msg: dict) -> dict:
         content = content[:200] + "..."
     compacted_msg["content"] = content
 
+    # Strip reasoning_details from OLD rounds (save tokens).
+    # Recent rounds keep them for MiniMax multi-turn coherence.
+    compacted_msg.pop("reasoning_details", None)
+    compacted_msg.pop("reasoning_content", None)
+
     # Compact tool_call arguments
     if msg.get("tool_calls"):
         compacted_tool_calls = []
