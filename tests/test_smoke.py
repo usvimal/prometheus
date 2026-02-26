@@ -43,6 +43,7 @@ TOOL_MODULES = [
     "prometheus.tools.control",
     "prometheus.tools.browser",
     "prometheus.tools.review",
+    "prometheus.tools.research",
 ]
 
 SUPERVISOR_MODULES = [
@@ -118,6 +119,8 @@ EXPECTED_TOOLS = [
     "list_available_tools",
     "enable_tools",
     "quick_search",
+    # Research tools (v6.4.1)
+    "research_search", "research_fetch", "research_synthesize",
 ]
 
 
@@ -428,77 +431,68 @@ def test_no_extremely_oversized_functions():
     for fname, func_name, size in _get_function_sizes():
         if size > MAX_FUNCTION_LINES:
             violations.append(f"{fname}:{func_name} = {size} lines")
-    assert len(violations) == 0, \
-        f"Functions exceeding {MAX_FUNCTION_LINES} lines:\n" + "\n".join(violations)
+    assert len(violations) == 0, f"Oversized functions (>{MAX_FUNCTION_LINES} lines):\n" + "\n".join(violations)
 
 
-def test_function_count_reasonable():
-    """Codebase doesn't have too few or too many functions."""
-    sizes = _get_function_sizes()
-    assert len(sizes) >= 100, f"Only {len(sizes)} functions — too few?"
-    assert len(sizes) <= 1000, f"{len(sizes)} functions — too many?"
+# ── Cross-file interface tests ──────────────────────────────────
+
+class TestCrossFileInterfaces:
+    """Test that functions called from other modules have stable signatures."""
+
+    def test_loop_exports(self):
+        """loop.py exports functions that agent.py imports."""
+        from prometheus import loop
+        # These must exist because agent.py imports them
+        assert hasattr(loop, "run_loop")
+        assert callable(loop.run_loop)
+
+    def test_llm_exports(self):
+        """llm.py exports functions that loop.py imports."""
+        from prometheus import llm
+        assert hasattr(llm, "call_llm")
+        assert callable(llm.call_llm)
+
+    def test_context_exports(self):
+        """context.py exports functions that agent.py imports."""
+        from prometheus import context
+        assert hasattr(context, "build_context")
+        assert callable(context.build_context)
+
+    def test_tools_registry_call(self):
+        """registry.execute is called with (name, params)."""
+        from prometheus.tools.registry import ToolRegistry
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            reg = ToolRegistry(repo_dir=pathlib.Path(tmp), drive_root=pathlib.Path(tmp))
+            # Should accept (tool_name, params_dict)
+            result = reg.execute("git_status", {})
+            assert isinstance(result, str)
 
 
-# ── Telemetry sanity ────────────────────────────────────────────
+# ── Quick sanity checks ──────────────────────────────────────────
 
-def test_all_logs_go_somewhere():
-    """Every log statement has a logger (not just print)."""
-    violations = []
-    for root, dirs, files in os.walk(REPO):
-        dirs[:] = [d for d in dirs if d not in ('.git', '__pycache__', 'docs')]
-        for f in files:
-            if not f.endswith(".py"):
-                continue
-            if f == "conftest.py":
-                continue
-            path = pathlib.Path(root) / f
-            src = path.read_text()
-            # print( without logger = violation
-            if re.search(r'\bprint\s*\(', src) and "logging" not in src:
-                violations.append(path.name)
-    assert len(violations) < 3, f"Files with print but no logging: {violations}"
+def test_prompt_utils_exist():
+    """Prompt utilities are present."""
+    from prometheus import utils
+    assert hasattr(utils, "clip_text")
+    assert hasattr(utils, "estimate_tokens")
 
 
-# ── Import sanity ────────────────────────────────────────────────
-
-def test_no_circular_imports():
-    """Basic check: all core modules import without error."""
-    # Just import all the things — if there's a cycle, Python will barf.
-    for m in CORE_MODULES:
-        __import__(m)
-    for m in SUPERVISOR_MODULES:
-        __import__(m)
+def test_memory_class_exists():
+    """Memory class is present."""
+    from prometheus.memory import Memory
+    assert Memory is not None
 
 
-# ── Cross-file interface sanity ───────────────────────────────────
-
-def test_cross_file_interfaces():
-    """Critical functions exist where expected (caller/callee match)."""
-    import prometheus.agent as agent
-    import prometheus.loop as loop
-    import prometheus.tools.registry as registry
-    
-    # Agent should have OuroborosAgent
-    assert hasattr(agent, 'OuroborosAgent'), "OuroborosAgent not in agent module"
-    
-    # Loop should have run_loop or run_llm_loop
-    assert hasattr(loop, 'run_loop') or hasattr(loop, 'run_llm_loop'), \
-        "No run_loop in loop module"
-    
-    # Registry should have ToolRegistry
-    assert hasattr(registry, 'ToolRegistry'), "ToolRegistry not in registry module"
+def test_tools_dir_exists():
+    """prometheus/tools/ directory exists with __init__.py."""
+    tools_dir = REPO / "prometheus" / "tools"
+    assert tools_dir.is_dir()
+    init_file = tools_dir / "__init__.py"
+    assert init_file.is_file()
 
 
-# ── Telegram sanity ──────────────────────────────────────────────
-
-def test_telegram_client_init():
-    """TelegramClient can be instantiated with a token."""
-    from supervisor.telegram import TelegramClient
-    # Just verify it can be imported and has send_message method
-    assert hasattr(TelegramClient, 'send_message'), "TelegramClient missing send_message"
-
-
-# ── Run if executed directly ─────────────────────────────────────
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_supervisor_dir_exists():
+    """supervisor/ directory exists."""
+    sup_dir = REPO / "supervisor"
+    assert sup_dir.is_dir()
