@@ -120,7 +120,7 @@ EXPECTED_TOOLS = [
     "enable_tools",
     "quick_search",
     # Research tools (v6.4.1)
-    "research_search", "research_fetch", "research_synthesize",
+    "python_exec", "research_search", "research_fetch", "research_synthesize",
     # Schedule tools
     "schedule_task_at", "schedule_task_recurring",
     "schedule_list", "schedule_cancel", "schedule_enable",
@@ -446,20 +446,20 @@ class TestCrossFileInterfaces:
         """loop.py exports functions that agent.py imports."""
         from prometheus import loop
         # These must exist because agent.py imports them
-        assert hasattr(loop, "run_loop")
-        assert callable(loop.run_loop)
+        assert hasattr(loop, "run_llm_loop")
+        assert callable(loop.run_llm_loop)
 
     def test_llm_exports(self):
         """llm.py exports functions that loop.py imports."""
         from prometheus import llm
-        assert hasattr(llm, "call_llm")
-        assert callable(llm.call_llm)
+        assert hasattr(llm, "LLMClient")
+        assert hasattr(llm, "fetch_openrouter_pricing")
 
     def test_context_exports(self):
         """context.py exports functions that agent.py imports."""
         from prometheus import context
-        assert hasattr(context, "build_context")
-        assert callable(context.build_context)
+        assert hasattr(context, "build_llm_messages")
+        assert callable(context.build_llm_messages)
 
     def test_tools_registry_call(self):
         """registry.execute is called with (name, params)."""
