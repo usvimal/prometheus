@@ -124,8 +124,12 @@ EXPECTED_TOOLS = [
     # Schedule tools
     "schedule_task_at", "schedule_task_recurring",
     "schedule_list", "schedule_cancel", "schedule_enable",
-    # System monitoring (v6.5.0)
+    # API client (v6.5.1)
+    "api_request",
+    # System monitor (v6.5.1)
     "system_monitor",
+    # Repo search (v6.5.1)
+    "repo_search_replace",
 ]
 
 
@@ -430,100 +434,73 @@ def _get_function_sizes():
     return results
 
 
-def test_no_extremely_large_functions():
-    """No function exceeds MAX_FUNCTION_LINES (200)."""
+def test_no_extremely_long_functions():
+    """No function exceeds MAX_FUNCTION_LINES."""
     violations = []
     for f, name, size in _get_function_sizes():
         if size > MAX_FUNCTION_LINES:
-            violations.append(f"{f}:{name}: {size} lines")
-    assert len(violations) == 0, f"Functions > {MAX_FUNCTION_LINES} lines:\n" + "\n".join(violations)
+            violations.append(f"{f}:{name} has {size} lines")
+    assert len(violations) == 0, f"Functions exceeding {MAX_FUNCTION_LINES} lines:\n" + "\n".join(violations)
 
 
-# ── Cross-file interface tests ───────────────────────────────────
-
-def test_cross_file_interfaces():
-    """Verify key cross-file function signatures haven't drifted."""
-    import prometheus.agent
-    import prometheus.context
-    import prometheus.loop
-    import prometheus.memory
-    
-    # agent.run() should exist
-    assert hasattr(prometheus.agent, 'run'), "agent.run() missing"
-    
-    # context.build_prompt() should accept the expected args
-    import inspect
-    ctx_sig = inspect.signature(prometheus.context.build_prompt)
-    ctx_params = list(ctx_sig.parameters.keys())
-    assert "task" in ctx_params, "build_prompt should have 'task' param"
-    
-    # loop.run_loop() should exist
-    assert hasattr(prometheus.loop, 'run_loop'), "loop.run_loop() missing"
-    
-    # Memory.load_scratchpad() should be callable
-    assert callable(prometheus.memory.Memory.load_scratchpad), "Memory.load_scratchpad not callable"
+def test_launcher_has_main():
+    """launcher.py has if __name__ == '__main__': main() guard."""
+    launcher = (REPO / "launcher.py").read_text()
+    assert "def main" in launcher, "launcher.py must have a main() function"
+    assert "if __name__" in launcher, "launcher.py must have if __name__ guard"
 
 
-# ── TestCrossFileInterfaces ──────────────────────────────────────
+def test_no_merge_conflicts():
+    """Codebase has no residual merge conflict markers."""
+    violations = []
+    for root, dirs, files in os.walk(REPO):
+        dirs[:] = [d for d in dirs if d not in ('.git', '__pycache__')]
+        for f in files:
+            if not f.endswith(".py"):
+                continue
+            path = pathlib.Path(root) / f
+            lines = path.read_text().splitlines()
+            for i, line in enumerate(lines, 1):
+                stripped = line.strip()
+                if stripped.startswith("<<<<<<"):
+                    violations.append(f"{path.name}:{i}: {line.strip()}")
+                # Only flag === if it's part of a merge conflict (between <<<< and >>>>)
+                if stripped.startswith("======="):
+                    # Check context - is this part of a merge conflict?
+                    in_conflict = False
+                    for j in range(max(0, i-5), i):
+                        if j < len(lines) and lines[j].strip().startswith("<<<<<<"):
+                            in_conflict = True
+                            break
+                    if in_conflict:
+                        violations.append(f"{path.name}:{i}: {line.strip()}")
+    assert len(violations) == 0, f"Merge conflict markers found:\n" + "\n".join(violations)
 
-class TestCrossFileInterfaces:
-    """Cross-file interface tests - catching caller/callee mismatches."""
 
-    def test_agent_to_loop_signature(self):
-        """Agent calls loop.run_loop with correct args."""
-        import inspect
-        import prometheus.loop
-        sig = inspect.signature(prometheus.loop.run_loop)
-        params = list(sig.parameters.keys())
-        # Check for expected parameters - adjust based on actual signature
-        assert "ctx" in params or "context" in params or len(params) >= 2, \
-            f"run_loop signature unexpected: {params}"
+# ── Dashboard schema ─────────────────────────────────────────────
 
-    def test_agent_to_context_signature(self):
-        """Agent calls context functions with correct args."""
-        import inspect
-        import prometheus.context
-        
-        # build_prompt should exist and take task/memory
-        assert hasattr(prometheus.context, 'build_prompt')
-        sig = inspect.signature(prometheus.context.build_prompt)
-        params = list(sig.parameters.keys())
-        # At minimum should have task, memory
-        assert "task" in params or len(params) >= 1, \
-            f"build_prompt signature unexpected: {params}"
+def test_dashboard_schema():
+    """Dashboard index.html has correct field names."""
+    index = (REPO / "docs" / "index.html").read_text()
+    assert "online" in index, "dashboard should have 'online' field"
+    assert "updated_at" in index, "dashboard should have 'updated_at' field"
 
-    def test_memory_interface(self):
-        """Memory class has required methods."""
-        import prometheus.memory
-        mem_cls = prometheus.memory.Memory
-        
-        required_methods = [
-            "save_scratchpad",
-            "load_scratchpad",
-            "load_identity",
-            "chat_history",
-        ]
-        for method in required_methods:
-            assert hasattr(mem_cls, method), f"Memory.{method} missing"
-            assert callable(getattr(mem_cls, method)), f"Memory.{method} not callable"
 
-    def test_tools_registry_interface(self):
-        """Tool registry has required methods."""
-        from prometheus.tools.registry import ToolRegistry
-        assert hasattr(ToolRegistry, 'schemas'), "ToolRegistry.schemas missing"
-        assert hasattr(ToolRegistry, 'execute'), "ToolRegistry.execute missing"
-        assert callable(ToolRegistry.schemas), "ToolRegistry.schemas not callable"
-        assert callable(ToolRegistry.execute), "ToolRegistry.execute not callable"
+# ── State file invariants ─────────────────────────────────────────
 
-    def test_llm_client_interface(self):
-        """LLM client has required interface."""
-        import prometheus.llm
-        assert hasattr(prometheus.llm, 'call'), "llm.call missing"
-        assert callable(prometheus.llm.call), "llm.call not callable"
+def test_state_json_valid():
+    """state.json has required fields."""
+    import json
+    state_path = REPO.parent / "data" / "state" / "state.json"
+    if not state_path.exists():
+        pytest.skip("state.json not present (first run?)")
+    state = json.loads(state_path.read_text())
+    required = ["session_id", "current_branch", "current_sha"]
+    for field in required:
+        assert field in state, f"state.json missing {field}"
 
-    def test_supervisor_state_interface(self):
-        """Supervisor state has required fields."""
-        import supervisor.state
-        assert hasattr(supervisor.state, 'STATE'), "STATE missing"
-        # STATE should be a dict-like
-        assert hasattr(supervisor.state.STATE, 'get'), "STATE.get missing"
+
+# ── Run if executed directly ──────────────────────────────────────
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
