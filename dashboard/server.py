@@ -165,6 +165,55 @@ def get_codex_status():
         return {"authenticated": False}
 
 
+@app.get("/api/evolution/stats")
+def get_evolution_stats(limit: int = 20):
+    """Evolution cycle stats - recent cycles, success rate, trends."""
+    events = _tail_jsonl(DATA_DIR / "logs" / "events.jsonl", max_lines=min(limit * 10, 1000))
+    
+    # Filter evolution task events
+    ev_tasks = [e for e in events if e.get("type") in ("task_done", "task_start") and e.get("task_type") == "evolution"]
+    
+    # Build stats
+    total = 0
+    successes = 0
+    failures = 0
+    recent = []
+    
+    for e in ev_tasks:
+        if e.get("type") == "task_start":
+            total += 1
+            recent.insert(0, {
+                "task_id": e.get("task_id"),
+                "status": "started",
+                "ts": e.get("ts"),
+            })
+        elif e.get("type") == "task_done":
+            status = e.get("status", "unknown")
+            if status == "success":
+                successes += 1
+            elif status == "failed":
+                failures += 1
+            # Find matching start event
+            for r in recent:
+                if r.get("task_id") == e.get("task_id") and r.get("status") == "started":
+                    r["status"] = status
+                    r["duration_sec"] = e.get("duration_sec")
+                    r["rounds"] = e.get("rounds", 0)
+                    break
+    
+    # Calculate success rate
+    completed = successes + failures
+    success_rate = round((successes / completed * 100), 1) if completed > 0 else 0
+    
+    return {
+        "total_cycles": total,
+        "successes": successes,
+        "failures": failures,
+        "success_rate_pct": success_rate,
+        "recent_cycles": recent[:limit],
+    }
+
+
 # ----- Static files / Dashboard UI -----
 
 DASHBOARD_DIR = pathlib.Path(__file__).parent / "static"
