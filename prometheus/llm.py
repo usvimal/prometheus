@@ -275,8 +275,16 @@ class LLMClient:
                     return self._chat_minimax(mm_client, messages, model, tools,
                                               reasoning_effort, max_tokens, tool_choice)
                 except Exception as e:
-                    log.warning("MiniMax call failed: %s", e)
-                    raise
+                    log.warning("MiniMax call failed: %s — trying OpenRouter fallback", e)
+                    # Fall through to OpenRouter with fallback model list
+                    fallback_list = os.environ.get("OUROBOROS_MODEL_FALLBACK_LIST", "")
+                    fallback_models = [m.strip() for m in fallback_list.split(",") if m.strip()]
+                    if fallback_models:
+                        model = fallback_models[0]
+                        log.info("Falling back to OpenRouter model: %s", model)
+                        # Fall through to OpenRouter path below
+                    else:
+                        raise
 
         # Route to Codex for non-prefixed models
         if _is_codex_model(model):

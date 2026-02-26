@@ -259,7 +259,29 @@ def _build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
-    # 5. Duplicate processing detection: same owner message text appearing in multiple tasks
+    # 5. Identity drift detection (agent confusing itself with its LLM backend)
+    try:
+        identity_path_check = env.drive_path("memory/identity.md")
+        if identity_path_check.exists():
+            identity_text = identity_path_check.read_text(encoding="utf-8").lower()
+            model_names = ["minimax", "claude", "gpt-4", "openai", "anthropic",
+                           "gemini", "llama", "mistral", "deepseek"]
+            identity_claims = [
+                m for m in model_names
+                if f"i am {m}" in identity_text or f"i'm {m}" in identity_text
+            ]
+            if identity_claims:
+                checks.append(
+                    f"WARNING: IDENTITY DRIFT — identity.md contains model self-identification: "
+                    f"{', '.join(identity_claims)}. Agent should identify as Prometheus/Ouroboros, "
+                    f"not as its LLM backend."
+                )
+            else:
+                checks.append("OK: no identity drift detected")
+    except Exception:
+        pass
+
+    # 6. Duplicate processing detection: same owner message text appearing in multiple tasks
     try:
         import hashlib
         msg_hash_to_tasks: Dict[str, set] = {}

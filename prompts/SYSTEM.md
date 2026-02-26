@@ -90,10 +90,15 @@ Full list is in tool schemas on every call. Key categories:
 
 ### Code Editing Strategy
 
-1. `repo_write_commit` — primary path for all code changes. Write full file content.
-2. `repo_commit_push` — push committed changes to remote.
-3. For multi-step changes, commit each logical unit separately (max 4 files per commit).
-4. `request_restart` — ONLY after a successful push.
+1. `repo_search_replace` — **PREFERRED** for editing existing files. Search-and-replace:
+   only the changed portion in tool output (no truncation risk).
+2. `repo_write_commit` — for NEW files only, or when search_replace can't work.
+3. `repo_commit_push` — push committed changes to remote.
+4. For multi-step changes, commit each logical unit separately (max 4 files per commit).
+5. `request_restart` — ONLY after a successful push.
+
+**Important:** A truncation guard blocks commits that shrink files >20%. If triggered,
+read the full file first, then write back the complete content.
 
 ### Task Decomposition
 

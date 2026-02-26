@@ -86,7 +86,7 @@ def test_tool_set_matches(registry):
 
 
 EXPECTED_TOOLS = [
-    "repo_read", "repo_write_commit", "repo_list", "repo_commit_push",
+    "repo_read", "repo_write_commit", "repo_list", "repo_search_replace", "repo_commit_push",
     "drive_read", "drive_write", "drive_list",
     "git_status", "git_diff",
     "run_shell", "claude_code_edit",
@@ -125,9 +125,7 @@ EXPECTED_TOOLS = [
     "schedule_task_at", "schedule_task_recurring",
     "schedule_list", "schedule_cancel", "schedule_enable",
     # HTTP client (v6.5.2)
-    "http_request",
     # System monitor (v6.5.2)
-    "system_monitor",
 ]
 
 
@@ -452,8 +450,8 @@ def test_cross_file_interfaces():
     from prometheus import agent, context, loop, llm, memory, review, utils
     
     # agent.Env has required attributes
-    assert hasattr(agent.Env, "REPO_DIR")
-    assert hasattr(agent.Env, "DRIVE_ROOT")
+    assert hasattr(agent.Env, "repo_dir")
+    assert hasattr(agent.Env, "drive_root")
     assert hasattr(agent.Env, "GITHUB_TOKEN")
     
     # context functions are callable

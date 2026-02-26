@@ -25,6 +25,10 @@ from prometheus.utils import utc_now_iso, append_jsonl, truncate_for_log, saniti
 
 log = logging.getLogger(__name__)
 
+# Reflection after consecutive tool failures
+_REFLECTION_PROMPT = "REFLECTION: The last {count} tool calls all returned errors. Before trying again, think step by step: 1) What exactly went wrong? 2) Am I using the right tool? 3) Are my arguments correct? 4) Should I try a different approach? Explain your reasoning, then try ONE corrected action."
+_MAX_CONSECUTIVE_ERRORS = 3
+
 # Pricing from OpenRouter API (2026-02-17). Update periodically via /api/v1/models.
 _MODEL_PRICING_STATIC = {
     "anthropic/claude-opus-4.6": (5.0, 0.5, 25.0),

@@ -51,6 +51,7 @@ def _get_db(ctx: ToolContext) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
     conn.execute("PRAGMA synchronous=NORMAL")
 
     # Load sqlite-vec extension

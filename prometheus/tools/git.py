@@ -319,6 +319,78 @@ def _git_diff(ctx: ToolContext, staged: bool = False) -> str:
         return f"⚠️ GIT_ERROR: {e}"
 
 
+def _repo_search_replace(ctx: ToolContext, path: str, search: str, replace: str, commit_message: str) -> str:
+    """Search-and-replace in an existing file, then commit + push.
+
+    Safer than repo_write_commit for editing existing files because only
+    the changed portion is in the tool output (no truncation risk).
+    """
+    ctx.last_push_succeeded = False
+    guard = _check_evolution_guard(ctx, [path])
+    if guard:
+        return guard
+    if not commit_message.strip():
+        return "\u26a0\ufe0f ERROR: commit_message must be non-empty."
+
+    full_path = ctx.repo_path(path)
+    if not full_path.exists():
+        return f"\u26a0\ufe0f FILE_NOT_FOUND: {path} does not exist. Use repo_write_commit for new files."
+
+    try:
+        content = full_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return f"\u26a0\ufe0f FILE_READ_ERROR: {e}"
+
+    count = content.count(search)
+    if count == 0:
+        # Show nearby content to help the agent find the right text
+        lines = content.splitlines()
+        snippet = "\n".join(lines[:30]) if len(lines) > 30 else content
+        return (
+            f"\u26a0\ufe0f SEARCH_NOT_FOUND: The search text was not found in {path}.\n"
+            f"First 30 lines of file:\n{snippet}"
+        )
+    if count > 1:
+        return (
+            f"\u26a0\ufe0f SEARCH_NOT_UNIQUE: Found {count} occurrences of the search text in {path}. "
+            f"Provide more context to make the match unique."
+        )
+
+    new_content = content.replace(search, replace, 1)
+
+    # Run truncation guard on result
+    trunc = _check_truncation_guard(ctx, path, new_content)
+    if trunc:
+        return trunc
+
+    lock = _acquire_git_lock(ctx)
+    try:
+        try:
+            run_cmd(["git", "checkout", ctx.branch_dev], cwd=ctx.repo_dir)
+        except Exception as e:
+            return f"\u26a0\ufe0f GIT_ERROR (checkout): {e}"
+        try:
+            write_text(full_path, new_content)
+        except Exception as e:
+            return f"\u26a0\ufe0f FILE_WRITE_ERROR: {e}"
+        try:
+            run_cmd(["git", "add", safe_relpath(path)], cwd=ctx.repo_dir)
+        except Exception as e:
+            return f"\u26a0\ufe0f GIT_ERROR (add): {e}"
+        try:
+            run_cmd(["git", "commit", "-m", commit_message], cwd=ctx.repo_dir)
+        except Exception as e:
+            return f"\u26a0\ufe0f GIT_ERROR (commit): {e}"
+
+        push_error = _git_push_with_tests(ctx)
+        if push_error:
+            return push_error
+    finally:
+        _release_git_lock(lock)
+    ctx.last_push_succeeded = True
+    return f"OK: search-replace in {path}, committed and pushed: {commit_message}"
+
+
 def get_tools() -> List[ToolEntry]:
     return [
         ToolEntry("repo_write_commit", {
@@ -350,4 +422,17 @@ def get_tools() -> List[ToolEntry]:
                 "staged": {"type": "boolean", "default": False, "description": "If true, show staged changes (--staged)"},
             }, "required": []},
         }, _git_diff, is_code_tool=True),
+        ToolEntry("repo_search_replace", {
+            "name": "repo_search_replace",
+            "description": "Search-and-replace in an existing file, then commit + push. "
+                           "PREFERRED over repo_write_commit for editing existing files — "
+                           "only outputs the changed portion (no truncation risk). "
+                           "Search text must match exactly and be unique in the file.",
+            "parameters": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "File path relative to repo root"},
+                "search": {"type": "string", "description": "Exact text to find (must be unique in file)"},
+                "replace": {"type": "string", "description": "Text to replace it with"},
+                "commit_message": {"type": "string"},
+            }, "required": ["path", "search", "replace", "commit_message"]},
+        }, _repo_search_replace, is_code_tool=True),
     ]
