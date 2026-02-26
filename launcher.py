@@ -640,8 +640,6 @@ def handle_one_update(offset: int) -> int:
             chat_id=chat_id,
             text=text,
             image_data=image_data,
-            is_owner=is_owner,
-            dual_path_note=dual_path_note,
         )
 
     return offset
