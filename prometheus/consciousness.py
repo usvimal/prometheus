@@ -297,6 +297,48 @@ class BackgroundConsciousness:
             return read_text(prompt_path)
         return "You are Prometheus in background consciousness mode. Think."
 
+    def _load_recent_chat(self, n_messages: int = 10) -> str:
+        """Load recent chat history to provide context for background consciousness."""
+        chat_path = self._drive_root / "logs" / "chat.jsonl"
+        if not chat_path.exists():
+            return ""
+        
+        try:
+            lines = []
+            with open(chat_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    lines.append(line)
+                    if len(lines) > n_messages:
+                        lines.pop(0)
+            
+            messages = []
+            for line in lines:
+                try:
+                    entry = json.loads(line)
+                    ts = entry.get("ts", "")[11:19]
+                    direction = entry.get("direction", "?")
+                    text = entry.get("text", "")
+                    
+                    if direction == "incoming":
+                        role = "User"
+                    elif direction == "outgoing":
+                        role = "Assistant"
+                    else:
+                        role = "System"
+                    
+                    if len(text) > 200:
+                        text = text[:197] + "..."
+                    
+                    messages.append(f"[{ts}] {role}: {text}")
+                except json.JSONDecodeError:
+                    continue
+            
+            return "\n".join(messages)
+        except Exception as e:
+            log.debug("Failed to load recent chat: %s", e)
+            return ""
+
+
     def _build_context(self) -> str:
         parts = [self._load_bg_prompt()]
 
@@ -369,6 +411,11 @@ class BackgroundConsciousness:
 
         # Show current model
         runtime_lines.append(f"Current model: {self._model}")
+
+        # Recent chat history to avoid duplicate responses
+        recent_chat = self._load_recent_chat(n_messages=15)
+        if recent_chat:
+            parts.append("## Recent Chat History (last 15 messages)\n\n" + recent_chat)
 
         parts.append("## Runtime\n\n" + "\n".join(runtime_lines))
 
