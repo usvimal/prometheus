@@ -57,6 +57,49 @@ def _check_evolution_guard(ctx, paths):
     return None
 
 
+# Maximum allowed shrinkage ratio before blocking (0.2 = 20%)
+_MAX_SHRINKAGE_RATIO = 0.20
+# Minimum file size (lines) to trigger truncation check
+_MIN_LINES_FOR_CHECK = 50
+
+
+def _check_truncation_guard(ctx, path: str, new_content: str) -> Optional[str]:
+    """Block commits that would significantly shrink an existing file.
+
+    LLMs often truncate large files when rewriting them, silently dropping
+    hundreds of lines. This guard catches it before the damage is committed.
+    """
+    try:
+        full_path = ctx.repo_path(path)
+        if not full_path.exists():
+            return None  # New file, no guard needed
+
+        old_content = full_path.read_text(encoding="utf-8")
+        old_lines = len(old_content.splitlines())
+        new_lines = len(new_content.splitlines())
+
+        if old_lines < _MIN_LINES_FOR_CHECK:
+            return None  # Small file, not worth checking
+
+        if new_lines >= old_lines:
+            return None  # File grew or stayed same size
+
+        shrinkage = (old_lines - new_lines) / old_lines
+        if shrinkage > _MAX_SHRINKAGE_RATIO:
+            lost = old_lines - new_lines
+            return (
+                f"⚠️ TRUNCATION GUARD: Blocked commit to {path}. "
+                f"File would shrink from {old_lines} to {new_lines} lines "
+                f"({lost} lines / {shrinkage:.0%} lost). "
+                f"This usually means the LLM truncated the file content. "
+                f"Read the full file with repo_read first, then write back "
+                f"the complete content with only your intended changes."
+            )
+    except Exception:
+        pass  # Don't block on guard errors
+    return None
+
+
 
 
 # --- Git lock ---
@@ -170,6 +213,9 @@ def _repo_write_commit(ctx: ToolContext, path: str, content: str, commit_message
     guard = _check_evolution_guard(ctx, [path])
     if guard:
         return guard
+    trunc = _check_truncation_guard(ctx, path, content)
+    if trunc:
+        return trunc
     if not commit_message.strip():
         return "⚠️ ERROR: commit_message must be non-empty."
     lock = _acquire_git_lock(ctx)
