@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import pathlib
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -96,12 +97,37 @@ def _build_budget_info(total_budget: float, spent: float) -> dict:
 
 # ----- API Routes -----
 
+def _get_kimi_usage() -> Dict[str, Any]:
+    """Get Kimi usage stats (shares process with launcher)."""
+    try:
+        from prometheus.llm import get_kimi_usage
+        return get_kimi_usage()
+    except Exception:
+        return {"calls": 0, "input_tokens": 0, "output_tokens": 0, "window_remaining_sec": 0}
+
+
+def _read_md(name: str) -> str:
+    """Read a markdown file from memory directory."""
+    path = DATA_DIR / "memory" / name
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
 @app.get("/api/status")
 def get_status():
-    """Current agent state: budget, workers, session info."""
+    """Current agent state: budget, workers, session info, kimi usage, uptime."""
     st = _load_state()
     total_budget = float(os.environ.get("TOTAL_BUDGET", "0") or "0")
     spent = float(st.get("spent_usd") or 0.0)
+
+    # Uptime from persisted launch_time_unix
+    launch_ts = float(st.get("launch_time_unix") or time.time())
+    uptime_sec = int(time.time() - launch_ts)
+
     return {
         "session_id": st.get("session_id"),
         "owner_id": st.get("owner_id"),
@@ -117,7 +143,11 @@ def get_status():
         "evolution": {
             "enabled": bool(st.get("evolution_mode_enabled")),
             "cycle": st.get("evolution_cycle", 0),
+            "consecutive_failures": st.get("evolution_consecutive_failures", 0),
         },
+        "kimi": _get_kimi_usage(),
+        "uptime_sec": uptime_sec,
+        "dashboard_enabled": bool(st.get("dashboard_enabled")),
         "last_owner_message": st.get("last_owner_message_at"),
     }
 
@@ -163,6 +193,30 @@ def get_codex_status():
         }
     except (json.JSONDecodeError, OSError):
         return {"authenticated": False}
+
+
+@app.get("/api/logs/progress")
+def get_progress_logs(limit: int = 50):
+    """Recent LLM progress/thinking messages."""
+    return _tail_jsonl(DATA_DIR / "logs" / "progress.jsonl", max_lines=min(limit, 500))
+
+
+@app.get("/api/memory/scratchpad")
+def get_scratchpad():
+    """Current scratchpad contents."""
+    return {"content": _read_md("scratchpad.md")}
+
+
+@app.get("/api/memory/identity")
+def get_identity():
+    """Current identity."""
+    return {"content": _read_md("identity.md")}
+
+
+@app.get("/api/memory/goals")
+def get_goals():
+    """Current goals."""
+    return {"content": _read_md("goals.md")}
 
 
 @app.get("/api/evolution/stats")

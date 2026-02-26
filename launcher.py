@@ -246,6 +246,11 @@ if restored_pending > 0:
         send_with_budget(int(st_boot["owner_chat_id"]),
                          f"Restored pending queue from snapshot: {restored_pending} tasks.")
 
+# Persist launch time so dashboard can calculate uptime
+_st_boot = load_state()
+_st_boot["launch_time_unix"] = _LAUNCH_TIME
+save_state(_st_boot)
+
 append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
     "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "type": "launcher_start",
@@ -339,31 +344,59 @@ def reset_chat_agent():
 
 
 # ----------------------------
-# 6.4) Dashboard server (background thread)
+# 6.4) Dashboard server (toggleable background thread)
 # ----------------------------
 _DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT", "8080"))
+_DASHBOARD_HOST = os.environ.get("DASHBOARD_HOST", "178.62.224.22")
+_dashboard_server = None  # uvicorn.Server instance (for clean shutdown)
+_dashboard_thread = None
 
 
 def _start_dashboard():
-    """Start the dashboard FastAPI server in a background thread."""
-    try:
-        import uvicorn
-        from dashboard.server import app as dashboard_app
-        log.info("Starting dashboard on 0.0.0.0:%s", _DASHBOARD_PORT)
-        uvicorn.run(
-            dashboard_app,
-            host="0.0.0.0",
-            port=_DASHBOARD_PORT,
-            log_level="warning",
-        )
-    except ImportError as e:
-        log.warning("Dashboard not started (missing dependency): %s", e)
-    except Exception:
-        log.exception("Dashboard server failed")
+    """Start the dashboard. Returns True if started, False if already running or failed."""
+    global _dashboard_server, _dashboard_thread
+    if _dashboard_thread and _dashboard_thread.is_alive():
+        return False  # already running
+
+    def _run():
+        global _dashboard_server
+        try:
+            import uvicorn
+            from dashboard.server import app as dashboard_app
+            config = uvicorn.Config(
+                dashboard_app, host="0.0.0.0", port=_DASHBOARD_PORT, log_level="warning",
+            )
+            _dashboard_server = uvicorn.Server(config)
+            log.info("Dashboard started on 0.0.0.0:%s", _DASHBOARD_PORT)
+            _dashboard_server.run()
+        except ImportError as e:
+            log.warning("Dashboard not started (missing dependency): %s", e)
+        except Exception:
+            log.exception("Dashboard server failed")
+        finally:
+            _dashboard_server = None
+
+    _dashboard_thread = threading.Thread(target=_run, daemon=True, name="dashboard")
+    _dashboard_thread.start()
+    return True
 
 
-_dashboard_thread = threading.Thread(target=_start_dashboard, daemon=True, name="dashboard")
-_dashboard_thread.start()
+def _stop_dashboard():
+    """Stop the dashboard. Returns True if stopped, False if not running."""
+    global _dashboard_server
+    if _dashboard_server:
+        _dashboard_server.should_exit = True
+        return True
+    return False
+
+
+def _dashboard_running() -> bool:
+    return _dashboard_thread is not None and _dashboard_thread.is_alive()
+
+
+# Auto-start if state says enabled
+if load_state().get("dashboard_enabled"):
+    _start_dashboard()
 
 # ----------------------------
 # 6.5) Codex OAuth state (for /login command)
@@ -606,11 +639,27 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         return True
 
     if lowered.startswith("/dashboard"):
-        # Use VPS public IP or configured hostname
-        host = os.environ.get("DASHBOARD_HOST", "178.62.224.22")
-        port = _DASHBOARD_PORT
-        url = f"http://{host}:{port}"
-        send_with_budget(chat_id, f"📊 Dashboard: {url}")
+        url = f"http://{_DASHBOARD_HOST}:{_DASHBOARD_PORT}"
+        if "on" in lowered or "start" in lowered:
+            if _dashboard_running():
+                send_with_budget(chat_id, f"📊 Dashboard already running: {url}")
+            else:
+                _start_dashboard()
+                st = load_state()
+                st["dashboard_enabled"] = True
+                save_state(st)
+                send_with_budget(chat_id, f"📊 Dashboard started: {url}")
+        elif "off" in lowered or "stop" in lowered:
+            _stop_dashboard()
+            st = load_state()
+            st["dashboard_enabled"] = False
+            save_state(st)
+            send_with_budget(chat_id, "📊 Dashboard stopped.")
+        else:
+            if _dashboard_running():
+                send_with_budget(chat_id, f"📊 Dashboard: running — {url}")
+            else:
+                send_with_budget(chat_id, "📊 Dashboard: off. Use /dashboard on to start.")
         return True
 
     if lowered.startswith("/help"):
