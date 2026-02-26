@@ -221,6 +221,16 @@ Single branch: `main`. All agent commits go here.
 
 ## Changelog
 
+### v6.5.0 -- Python Execution
+- **Python execution tool** -- New `python_exec` module for direct Python code execution
+  - `python_exec` -- execute Python code and capture stdout, stderr, return value
+  - Timeout protection (60s default, configurable)
+  - Returns structured JSON output with execution results
+  - Differentiated from shell.py (which runs shell commands)
+- **Test suite update** -- Added python_exec to expected tools, added research tools test
+- **199 tests passing**
+
+
 ### v6.4.1 -- Scheduled Tasks
 - **Scheduled tasks capability** -- New scheduler module with tools for one-time and recurring scheduled tasks
   - `schedule_task_at` -- schedule one-time tasks at specific time (ISO or relative)
