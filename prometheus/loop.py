@@ -753,7 +753,7 @@ def run_loop(
     round_idx = 0
     retry_count = 0
     if active_model is None:
-        active_model = llm.model
+        active_model = llm.default_model()
     active_effort = normalize_reasoning_effort(active_effort)
 
     # Trace for observability
