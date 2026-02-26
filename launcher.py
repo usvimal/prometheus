@@ -546,6 +546,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         if "start" in lowered:
             st = load_state()
             st["evolution_mode_enabled"] = True
+            st["evolution_consecutive_failures"] = 0
             save_state(st)
             send_with_budget(chat_id, "Evolution enabled.")
         elif "stop" in lowered:
