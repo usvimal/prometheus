@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -134,6 +135,16 @@ class ToolRegistry:
     def available_tools(self) -> List[str]:
         return [e.name for e in self._entries.values()]
 
+    @property
+    def tool_count(self) -> int:
+        """Return total number of registered tools."""
+        return len(self._entries)
+
+    @property
+    def core_tool_count(self) -> int:
+        """Return number of core tools."""
+        return sum(1 for e in self._entries.values() if e.name in CORE_TOOL_NAMES)
+
     def schemas(self, core_only: bool = False) -> List[Dict[str, Any]]:
         if not core_only:
             return [{"type": "function", "function": e.schema} for e in self._entries.values()]
@@ -160,6 +171,18 @@ class ToolRegistry:
             return {"type": "function", "function": entry.schema}
         return None
 
+    def get_tool_info(self, name: str) -> Optional[Dict[str, Any]]:
+        """Return full tool info (schema, timeout, is_code_tool) for debugging."""
+        entry = self._entries.get(name)
+        if entry:
+            return {
+                "name": entry.name,
+                "schema": entry.schema,
+                "is_code_tool": entry.is_code_tool,
+                "timeout_sec": entry.timeout_sec,
+            }
+        return None
+
     def get_timeout(self, name: str) -> int:
         """Return timeout_sec for the named tool (default 120)."""
         entry = self._entries.get(name)
@@ -168,13 +191,22 @@ class ToolRegistry:
     def execute(self, name: str, args: Dict[str, Any]) -> str:
         entry = self._entries.get(name)
         if entry is None:
-            return f"⚠️ Unknown tool: {name}. Available: {', '.join(sorted(self._entries.keys()))}"
+            available = ', '.join(sorted(self._entries.keys()))
+            # Show similar tools if exact match not found
+            suggestions = [k for k in self._entries.keys() if name.lower() in k.lower()]
+            suggestion_msg = f" Similar: {', '.join(suggestions)}" if suggestions else ""
+            return f"⚠️ Unknown tool: {name}. Available: {available}.{suggestion_msg}"
         try:
             return entry.handler(self._ctx, **args)
         except TypeError as e:
-            return f"⚠️ TOOL_ARG_ERROR ({name}): {e}"
+            # Include parameter schema in error for debugging
+            params = entry.schema.get("parameters", {})
+            param_schema = json.dumps(params, indent=2)[:500] if params else "none"
+            return f"⚠️ TOOL_ARG_ERROR ({name}): {e}\nExpected params: {param_schema}"
         except Exception as e:
-            return f"⚠️ TOOL_ERROR ({name}): {e}"
+            # Include traceback for unexpected errors
+            tb = traceback.format_exc(limit=5)
+            return f"⚠️ TOOL_ERROR ({name}): {e}\n{tb}"
 
     def override_handler(self, name: str, handler) -> None:
         """Override the handler for a registered tool (used for closure injection)."""
