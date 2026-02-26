@@ -20,6 +20,8 @@ class MessageType(Enum):
     AUDIO = auto()
     VIDEO = auto()
     VOICE = auto()
+    LOCATION = auto()
+    CONTACT = auto()
     CALLBACK = auto()
     UNKNOWN = auto()
 
@@ -92,6 +94,16 @@ class Message:
             return CommandMessage.from_telegram_update(update)
         elif message_data.get("photo"):
             return PhotoMessage.from_telegram_update(update)
+        elif message_data.get("document"):
+            return DocumentMessage.from_telegram_update(update)
+        elif message_data.get("audio"):
+            return AudioMessage.from_telegram_update(update)
+        elif message_data.get("video"):
+            return VideoMessage.from_telegram_update(update)
+        elif message_data.get("location"):
+            return LocationMessage.from_telegram_update(update)
+        elif message_data.get("contact"):
+            return ContactMessage.from_telegram_update(update)
         elif message_data.get("text"):
             return TextMessage.from_telegram_update(update)
         else:
@@ -228,6 +240,176 @@ class PhotoMessage(Message):
             caption=message_data.get("caption"),
             photo_sizes=photos,
             file_id=largest.get("file_id") if largest else None,
+        )
+
+
+@dataclass
+class DocumentMessage(Message):
+    """Document/file message."""
+    file_id: str = ""
+    file_name: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_size: int = 0
+    caption: Optional[str] = None
+    
+    def __post_init__(self):
+        if self.message_type == MessageType.UNKNOWN:
+            self.message_type = MessageType.DOCUMENT
+    
+    @classmethod
+    def from_telegram_update(cls, update: Dict[str, Any]) -> DocumentMessage:
+        message_data = update.get("message") or update.get("edited_message", {})
+        base = cls._parse_base(message_data, MessageType.DOCUMENT)
+        doc = message_data.get("document", {})
+        
+        return cls(
+            message_id=base.message_id,
+            chat=base.chat,
+            from_user=base.from_user,
+            date=base.date,
+            message_type=MessageType.DOCUMENT,
+            raw_data=base.raw_data,
+            file_id=doc.get("file_id", ""),
+            file_name=doc.get("file_name"),
+            mime_type=doc.get("mime_type"),
+            file_size=doc.get("file_size", 0),
+            caption=message_data.get("caption"),
+        )
+
+
+@dataclass
+class AudioMessage(Message):
+    """Audio message (music file)."""
+    file_id: str = ""
+    duration: int = 0
+    performer: Optional[str] = None
+    title: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_size: int = 0
+    
+    def __post_init__(self):
+        if self.message_type == MessageType.UNKNOWN:
+            self.message_type = MessageType.AUDIO
+    
+    @classmethod
+    def from_telegram_update(cls, update: Dict[str, Any]) -> AudioMessage:
+        message_data = update.get("message") or update.get("edited_message", {})
+        base = cls._parse_base(message_data, MessageType.AUDIO)
+        audio = message_data.get("audio", {})
+        
+        return cls(
+            message_id=base.message_id,
+            chat=base.chat,
+            from_user=base.from_user,
+            date=base.date,
+            message_type=MessageType.AUDIO,
+            raw_data=base.raw_data,
+            file_id=audio.get("file_id", ""),
+            duration=audio.get("duration", 0),
+            performer=audio.get("performer"),
+            title=audio.get("title"),
+            mime_type=audio.get("mime_type"),
+            file_size=audio.get("file_size", 0),
+        )
+
+
+@dataclass
+class VideoMessage(Message):
+    """Video message."""
+    file_id: str = ""
+    width: int = 0
+    height: int = 0
+    duration: int = 0
+    caption: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_size: int = 0
+    
+    def __post_init__(self):
+        if self.message_type == MessageType.UNKNOWN:
+            self.message_type = MessageType.VIDEO
+    
+    @classmethod
+    def from_telegram_update(cls, update: Dict[str, Any]) -> VideoMessage:
+        message_data = update.get("message") or update.get("edited_message", {})
+        base = cls._parse_base(message_data, MessageType.VIDEO)
+        video = message_data.get("video", {})
+        
+        return cls(
+            message_id=base.message_id,
+            chat=base.chat,
+            from_user=base.from_user,
+            date=base.date,
+            message_type=MessageType.VIDEO,
+            raw_data=base.raw_data,
+            file_id=video.get("file_id", ""),
+            width=video.get("width", 0),
+            height=video.get("height", 0),
+            duration=video.get("duration", 0),
+            caption=message_data.get("caption"),
+            mime_type=video.get("mime_type"),
+            file_size=video.get("file_size", 0),
+        )
+
+
+@dataclass
+class LocationMessage(Message):
+    """Location message."""
+    latitude: float = 0.0
+    longitude: float = 0.0
+    
+    def __post_init__(self):
+        if self.message_type == MessageType.UNKNOWN:
+            self.message_type = MessageType.LOCATION
+    
+    @classmethod
+    def from_telegram_update(cls, update: Dict[str, Any]) -> LocationMessage:
+        message_data = update.get("message") or update.get("edited_message", {})
+        base = cls._parse_base(message_data, MessageType.LOCATION)
+        location = message_data.get("location", {})
+        
+        return cls(
+            message_id=base.message_id,
+            chat=base.chat,
+            from_user=base.from_user,
+            date=base.date,
+            message_type=MessageType.LOCATION,
+            raw_data=base.raw_data,
+            latitude=location.get("latitude", 0.0),
+            longitude=location.get("longitude", 0.0),
+        )
+
+
+@dataclass
+class ContactMessage(Message):
+    """Contact message."""
+    phone_number: str = ""
+    first_name: str = ""
+    last_name: Optional[str] = None
+    user_id: Optional[int] = None
+    vcard: Optional[str] = None
+    
+    def __post_init__(self):
+        if self.message_type == MessageType.UNKNOWN:
+            self.message_type = MessageType.CONTACT
+    
+    @classmethod
+    def from_telegram_update(cls, update: Dict[str, Any]) -> ContactMessage:
+        message_data = update.get("message") or update.get("edited_message", {})
+        base = cls._parse_base(message_data, MessageType.CONTACT)
+        contact = message_data.get("contact", {})
+        
+        return cls(
+            message_id=base.message_id,
+            chat=base.chat,
+            from_user=base.from_user,
+            date=base.date,
+            message_type=MessageType.CONTACT,
+            raw_data=base.raw_data,
+            phone_number=contact.get("phone_number", ""),
+            first_name=contact.get("first_name", ""),
+            last_name=contact.get("last_name"),
+            user_id=contact.get("user_id"),
+            vcard=contact.get("vcard"),
         )
 
 
