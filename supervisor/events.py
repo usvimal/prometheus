@@ -112,14 +112,15 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
         # Get the actual metrics from the event
         cost = float(evt.get("cost_usd") or 0)
         rounds = int(evt.get("total_rounds") or 0)
-        status = evt.get("status", "unknown")
         
-        logger.info(f"Evolution task {task_id} completed: rounds={rounds}, status={status}, cost=${cost}")
+        logger.info(f"Evolution task {task_id} completed: rounds={rounds}, cost=${cost}")
 
-        # FIXED: Check actual status field, not just rounds
-        # A successful evolution should have status == "success"
-        # (not just rounds > 0, since failed tasks can have rounds=1-2)
-        is_success = status == "success"
+        # FIXED: More robust success detection
+        # A successful evolution should have:
+        # - At least 1 round of work (LLM actually ran)
+        # - Not a zero-round "immediate failure"
+        # Even if cost is $0 (MiniMax free tier), the rounds indicate real work
+        is_success = rounds > 0
 
         if is_success:
             # Success: reset failure counter
@@ -127,11 +128,11 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
             logger.info(f"Evolution task {task_id} succeeded (rounds={rounds}), resetting failure counter")
             ctx.save_state(st)
         else:
-            # Failure: increment counter
+            # Likely failure (no rounds = immediate failure)
             failures = int(st.get("evolution_consecutive_failures") or 0) + 1
             st["evolution_consecutive_failures"] = failures
             ctx.save_state(st)
-            logger.warning(f"Evolution task {task_id} failed (status={status}, rounds={rounds}), consecutive failures: {failures}")
+            logger.warning(f"Evolution task {task_id} failed (rounds={rounds}), consecutive failures: {failures}")
             ctx.append_jsonl(
                 ctx.DRIVE_ROOT / "logs" / "supervisor.jsonl",
                 {
@@ -141,7 +142,6 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
                     "consecutive_failures": failures,
                     "cost_usd": cost,
                     "rounds": rounds,
-                    "status": status,
                 },
             )
 

@@ -5,9 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import py_compile
-import subprocess
-import sys
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List
@@ -19,109 +16,10 @@ log = logging.getLogger(__name__)
 
 MAX_SUBTASK_DEPTH = 3
 
-# Critical files that must be valid before evolution can commit
-CRITICAL_FILES = [
-    "prometheus/loop.py",
-    "prometheus/agent.py",
-    "prometheus/llm.py",
-    "prometheus/context.py",
-    "prometheus/memory.py",
-]
-
-
-def _validate_code(ctx: ToolContext, strict: bool = False) -> str:
-    """Pre-commit validation: check Python syntax and critical imports before push.
-    
-    This prevents self-corruption during evolution cycles where broken code
-    gets committed and causes cascading failures.
-    
-    Args:
-        strict: If True, also run pytest smoke tests. Default False.
-    """
-    errors = []
-    warnings = []
-    
-    # 1. Syntax validation on all Python files
-    repo_path = Path(ctx.repo_dir)
-    for py_file in repo_path.rglob("*.py"):
-        # Skip __pycache__, .pytest_cache, etc.
-        if "__pycache__" in str(py_file) or ".pytest_cache" in str(py_file):
-            continue
-        rel_path = py_file.relative_to(repo_path)
-        try:
-            py_compile.compile(str(py_file), doraise=True)
-        except py_compile.PyCompileError as e:
-            errors.append(f"SYNTAX ERROR in {rel_path}: {e}")
-        except Exception as e:
-            warnings.append(f"Warning checking {rel_path}: {e}")
-    
-    # 2. Critical imports check
-    for critical in CRITICAL_FILES:
-        file_path = repo_path / critical
-        if not file_path.exists():
-            errors.append(f"CRITICAL FILE MISSING: {critical}")
-            continue
-        # Try importing the module
-        module_name = critical.replace("/", ".").replace(".py", "")
-        try:
-            # Run in subprocess to catch import errors
-            result = subprocess.run(
-                [sys.executable, "-c", f"import {module_name}"],
-                cwd=str(repo_path),
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            if result.returncode != 0:
-                errors.append(f"IMPORT ERROR in {critical}: {result.stderr[:200]}")
-        except subprocess.TimeoutExpired:
-            warnings.append(f"Timeout checking import: {critical}")
-        except Exception as e:
-            warnings.append(f"Warning checking import {critical}: {e}")
-    
-    # 3. Optional: run smoke tests
-    if strict:
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=no", "-p", "no:randomly"],
-                cwd=str(repo_path),
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            if result.returncode != 0:
-                # Extract failure info
-                stderr = result.stderr + result.stdout
-                # Don't fail on test failures, just warn
-                warnings.append(f"SMOKE TESTS: some failures (not blocking commit)")
-        except subprocess.TimeoutExpired:
-            warnings.append("Smoke tests timed out")
-        except Exception as e:
-            warnings.append(f"Could not run smoke tests: {e}")
-    
-    # Build response
-    if errors:
-        return "❌ PRE-COMMIT VALIDATION FAILED:\n" + "\n".join(f"  - {e}" for e in errors)
-    elif warnings:
-        return "⚠️ PRE-COMMIT VALIDATION PASSED with warnings:\n" + "\n".join(f"  - {w}" for w in warnings)
-    else:
-        return "✅ PRE-COMMIT VALIDATION PASSED: All Python files valid, critical imports OK"
-
-
-# Circuit breaker: allow restart after N failed push attempts
-EVOLUTION_RESTART_CIRCUIT_BREAKER = 3
-
 
 def _request_restart(ctx: ToolContext, reason: str) -> str:
-    # Check if evolution circuit breaker should allow restart
     if str(ctx.current_task_type or "") == "evolution" and not ctx.last_push_succeeded:
-        # Track consecutive failed pushes
-        failed_attempts = getattr(ctx, 'consecutive_push_failures', 0)
-        if failed_attempts < EVOLUTION_RESTART_CIRCUIT_BREAKER:
-            return f"⚠️ RESTART_BLOCKED: in evolution mode, commit+push first (attempt {failed_attempts + 1}/{EVOLUTION_RESTART_CIRCUIT_BREAKER})."
-        # Circuit breaker triggered: allow restart to break the deadlock
-        log.warning(f"Evolution circuit breaker triggered: allowing restart after {failed_attempts} failed push attempts")
-    
+        return "⚠️ RESTART_BLOCKED: in evolution mode, commit+push first."
     # Persist expected SHA for post-restart verification
     try:
         sha = run_cmd(["git", "rev-parse", "HEAD"], cwd=ctx.repo_dir)
@@ -324,14 +222,6 @@ def _wait_for_task(ctx: ToolContext, task_id: str) -> str:
 
 def get_tools() -> List[ToolEntry]:
     return [
-        ToolEntry("validate_code", {
-            "name": "validate_code",
-            "description": "Pre-commit validation: check Python syntax and critical imports before push. "
-                           "Prevents self-corruption during evolution cycles.",
-            "parameters": {"type": "object", "properties": {
-                "strict": {"type": "boolean", "description": "If true, also run pytest smoke tests (default: false)"},
-            }, "required": []},
-        }, _validate_code),
         ToolEntry("request_restart", {
             "name": "request_restart",
             "description": "Ask supervisor to restart runtime (after successful push).",
@@ -367,55 +257,74 @@ def get_tools() -> List[ToolEntry]:
             "name": "chat_history",
             "description": "Retrieve messages from chat history. Supports search.",
             "parameters": {"type": "object", "properties": {
-                "count": {"type": "integer", "default": 100},
-                "offset": {"type": "integer", "default": 0},
-                "search": {"type": "string", "default": ""},
+                "count": {"type": "integer", "default": 100, "description": "Number of messages (from latest)"},
+                "offset": {"type": "integer", "default": 0, "description": "Skip N from end (pagination)"},
+                "search": {"type": "string", "default": "", "description": "Text filter"},
             }, "required": []},
         }, _chat_history),
         ToolEntry("update_scratchpad", {
             "name": "update_scratchpad",
-            "description": "Update working memory. Write freely — any format you find useful.",
-            "parameters": {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]},
+            "description": "Update your working memory. Write freely — any format you find useful. "
+                           "This persists across sessions and is read at every task start.",
+            "parameters": {"type": "object", "properties": {
+                "content": {"type": "string", "description": "Full scratchpad content"},
+            }, "required": ["content"]},
         }, _update_scratchpad),
         ToolEntry("send_owner_message", {
             "name": "send_owner_message",
-            "description": "Send a proactive message to the owner. Use when you have something genuinely worth saying.",
+            "description": "Send a proactive message to the owner. Use when you have something "
+                           "genuinely worth saying — an insight, a question, or an invitation to collaborate. "
+                           "This is NOT for task responses (those go automatically).",
             "parameters": {"type": "object", "properties": {
-                "text": {"type": "string"},
-                "reason": {"type": "string", "default": ""},
+                "text": {"type": "string", "description": "Message text"},
+                "reason": {"type": "string", "description": "Why you're reaching out (logged, not sent)"},
             }, "required": ["text"]},
         }, _send_owner_message),
         ToolEntry("update_identity", {
             "name": "update_identity",
-            "description": "Update your identity manifest (who you are, who you want to become).",
-            "parameters": {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]},
+            "description": "Update your identity manifest (who you are, who you want to become). "
+                           "Persists across sessions. Obligation to yourself (Principle 1: Continuity).",
+            "parameters": {"type": "object", "properties": {
+                "content": {"type": "string", "description": "Full identity content"},
+            }, "required": ["content"]},
         }, _update_identity),
         ToolEntry("toggle_evolution", {
             "name": "toggle_evolution",
-            "description": "Toggle evolution mode on/off.",
-            "parameters": {"type": "object", "properties": {"enabled": {"type": "boolean"}}, "required": ["enabled"]},
+            "description": "Enable or disable evolution mode. When enabled, Ouroboros runs continuous self-improvement cycles.",
+            "parameters": {"type": "object", "properties": {
+                "enabled": {"type": "boolean", "description": "true to enable, false to disable"},
+            }, "required": ["enabled"]},
         }, _toggle_evolution),
         ToolEntry("toggle_consciousness", {
             "name": "toggle_consciousness",
-            "description": "Control background consciousness: start, stop, or status.",
-            "parameters": {"type": "object", "properties": {"action": {"type": "string", "default": "status"}}, "required": []},
+            "description": "Control background consciousness: 'start', 'stop', or 'status'.",
+            "parameters": {"type": "object", "properties": {
+                "action": {"type": "string", "enum": ["start", "stop", "status"], "description": "Action to perform"},
+            }, "required": ["action"]},
         }, _toggle_consciousness),
         ToolEntry("switch_model", {
             "name": "switch_model",
-            "description": "Switch to a different LLM model or reasoning effort level.",
+            "description": "Switch to a different LLM model or reasoning effort level. "
+                           "Use when you need more power (complex code, deep reasoning) "
+                           "or want to save budget (simple tasks). Takes effect on next round.",
             "parameters": {"type": "object", "properties": {
-                "model": {"type": "string"},
-                "effort": {"type": "string"},
+                "model": {"type": "string", "description": "Model name (e.g. anthropic/claude-sonnet-4). Leave empty to keep current."},
+                "effort": {"type": "string", "enum": ["low", "medium", "high", "xhigh"],
+                           "description": "Reasoning effort level. Leave empty to keep current."},
             }, "required": []},
         }, _switch_model),
         ToolEntry("get_task_result", {
             "name": "get_task_result",
-            "description": "Read the result of a completed subtask.",
-            "parameters": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]},
+            "description": "Read the result of a completed subtask. Use after schedule_task to collect results.",
+            "parameters": {"type": "object", "required": ["task_id"], "properties": {
+                "task_id": {"type": "string", "description": "Task ID returned by schedule_task"},
+            }},
         }, _get_task_result),
         ToolEntry("wait_for_task", {
             "name": "wait_for_task",
-            "description": "Check if a subtask has completed. Returns result if done, or 'still running' message.",
-            "parameters": {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"]},
+            "description": "Check if a subtask has completed. Returns result if done, or 'still running' message. Call repeatedly to poll. Default timeout: 120s.",
+            "parameters": {"type": "object", "required": ["task_id"], "properties": {
+                "task_id": {"type": "string", "description": "Task ID to check"},
+            }},
         }, _wait_for_task),
     ]

@@ -451,7 +451,7 @@ class TestPrePushGate:
         from supervisor.git_ops import get_diff_summary
         # Should return string (may be empty)
         diff = get_diff_summary()
-        assert isinstance(diff, dict)
+        assert isinstance(diff, str)
 
 
 # ── Telegram supervisor tests ─────────────────────────────────────
@@ -507,3 +507,11 @@ class TestAgentCore:
 
 
 # ── Orchestrator tests ────────────────────────────────────────────
+
+class TestOrchestrator:
+    """Orchestrator coordination tests."""
+    
+    def test_orchestrator_import(self):
+        """Orchestrator module imports."""
+        from prometheus.orchestrator import OuroborosOrchestrator
+        assert OuroborosOrchestrator is not None
