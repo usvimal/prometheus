@@ -641,9 +641,52 @@ def handle_one_update(offset: int) -> int:
             is_owner = True
             send_with_budget(chat_id, "👋 Hello! I've been expecting you.")
 
-        if not is_owner:
-            log.debug("Ignoring message from non-owner %s", user_id)
+        # Group handling: allow groups but only respond to @mentions or replies
+        is_group = chat_type in ('group', 'supergroup', 'channel')
+        
+        if not is_owner and not is_group:
+            log.debug("Ignoring message from non-owner %s in private chat", user_id)
             continue
+            
+        # In groups, only respond if:
+        # 1. Message is a reply to the bot's message
+        # 2. Message contains @mention of the bot
+        # 3. Owner is sending the message
+        if is_group and not is_owner:
+            # Check if this is a reply to the bot
+            reply_to = msg.get('reply_to_message')
+            is_reply_to_bot = False
+            if reply_to:
+                reply_from = reply_to.get('from', {})
+                if reply_from.get('is_bot') and reply_from.get('username', '').lower().endswith('bot'):
+                    is_reply_to_bot = True
+            
+            # Check for @mention of bot
+            bot_username = TG.get_bot_username()
+            has_mention = False
+            if bot_username and text:
+                has_mention = f'@{bot_username}' in text or f'@{bot_username.lower()}' in text.lower()
+            
+            # Also check entities for mentions
+            entities = msg.get('entities', [])
+            for entity in entities:
+                if entity.get('type') == 'mention':
+                    offset = entity.get('offset', 0)
+                    length = entity.get('length', 0)
+                    mention_text = text[offset:offset+length] if text else ''
+                    if bot_username and mention_text.lower() == f'@{bot_username.lower()}':
+                        has_mention = True
+                        break
+            
+            if not (is_reply_to_bot or has_mention):
+                log.debug("Ignoring group message without mention or reply from %s", user_id)
+                continue
+            
+            # Strip the @mention from text before processing
+            if has_mention and bot_username:
+                text = text.replace(f'@{bot_username}', '').replace(f'@{bot_username.lower()}', '').strip()
+                # Clean up extra spaces
+                text = ' '.join(text.split())
 
         # Check for /login redirect
         if text.startswith("http"):

@@ -49,6 +49,24 @@ class TelegramClient:
     def __init__(self, token: str):
         self.base = f"https://api.telegram.org/bot{token}"
         self._token = token
+        self._bot_username: Optional[str] = None
+
+    def get_bot_username(self) -> Optional[str]:
+        """Fetch and cache the bot's username from Telegram API."""
+        if self._bot_username is not None:
+            return self._bot_username
+        
+        try:
+            r = requests.get(f"{self.base}/getMe", timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            if data.get("ok") is True:
+                self._bot_username = data.get("result", {}).get("username")
+                return self._bot_username
+        except Exception as e:
+            log.debug("Failed to get bot username: %s", e)
+        
+        return None
 
     def get_updates(self, offset: int, timeout: int = 10) -> List[Dict[str, Any]]:
         last_err = "unknown"
