@@ -38,8 +38,8 @@ def _request_restart(ctx: ToolContext, reason: str) -> str:
         _evolution_consecutive_failures += 1
         if _evolution_consecutive_failures >= EVOLUTION_RESTART_CIRCUIT_BREAKER:
             # Circuit breaker tripped - allow restart anyway to break deadlock
+            log.info(f"Circuit breaker TRIPPED - allowing restart after {_evolution_consecutive_failures} consecutive failures")
             _evolution_consecutive_failures = 0
-            log.info(f"Circuit breaker: allowing restart after {_evolution_consecutive_failures} consecutive failures")
         else:
             return f"⚠️ RESTART_BLOCKED: in evolution mode, commit+push first. (failure {_evolution_consecutive_failures}/{EVOLUTION_RESTART_CIRCUIT_BREAKER})"
     
