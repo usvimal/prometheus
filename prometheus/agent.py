@@ -598,6 +598,10 @@ class PrometheusAgent:
         self._last_progress_ts = time.time()
         if self._event_queue is None or self._current_chat_id is None:
             return
+        # Skip intermediate progress messages in group chats (negative chat_id).
+        # In groups, 💬 thinking messages create spam; only direct chats get narration.
+        if self._current_chat_id < 0:
+            return
         try:
             self._event_queue.put({
                 "type": "send_message", "chat_id": self._current_chat_id,
