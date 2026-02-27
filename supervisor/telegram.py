@@ -457,6 +457,12 @@ def budget_line(force: bool = False) -> str:
 _chat_log_dedup: dict = {}  # (direction, text_hash) -> last_timestamp
 _CHAT_DEDUP_WINDOW_SEC = 5.0
 
+# Dedup guard for send_with_budget: suppress duplicate outgoing sends.
+# Prevents double-send when LLM calls _send_owner_message tool AND returns
+# the same text as the final response (both queue a send_message event).
+_send_dedup: dict = {}  # (chat_id, text_hash) -> last_timestamp
+_SEND_DEDUP_WINDOW_SEC = 10.0
+
 
 def log_chat(direction: str, chat_id: int, user_id: int, text: str) -> None:
     import time as _time
@@ -490,6 +496,25 @@ def send_with_budget(chat_id: int, text: str, log_text: Optional[str] = None,
                      is_progress: bool = False,
                      reply_to_message_id: Optional[int] = None,
                      message_thread_id: Optional[int] = None) -> None:
+    # Dedup guard: suppress duplicate outgoing sends within a short window.
+    # Prevents double-send when LLM both calls _send_owner_message tool and
+    # returns the same text as final response (both queue a send_message event).
+    if not is_progress:
+        import time as _time_dedup
+        import hashlib as _hl_dedup
+        _text_key = str(text or "").strip()[:500]
+        _send_key = (int(chat_id), _hl_dedup.md5(_text_key.encode()).hexdigest())
+        _now_dedup = _time_dedup.time()
+        if _send_dedup.get(_send_key, 0) + _SEND_DEDUP_WINDOW_SEC > _now_dedup:
+            log.info("Suppressed duplicate outgoing message to chat_id=%d (10s window)", chat_id)
+            return
+        _send_dedup[_send_key] = _now_dedup
+        # Prune old entries
+        if len(_send_dedup) > 200:
+            _oldest = sorted(_send_dedup, key=_send_dedup.get)
+            for _k in _oldest[:100]:
+                _send_dedup.pop(_k, None)
+
     st = load_state()
     owner_id = int(st.get("owner_id") or 0)
     # Progress messages go to progress.jsonl instead of chat.jsonl
