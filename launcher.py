@@ -1142,9 +1142,9 @@ def handle_one_update(offset: int) -> int:
                             has_mention = True
                             break
             # Require mention/reply for ALL users in groups (including owner)
-            # Only exception: policy=open or require_mention=false
+            # require_mention is always respected regardless of policy
             # Owner can still use /commands without mention (handled by supervisor_command above)
-            if gcfg["require_mention"] and gcfg["policy"] != "open":
+            if gcfg["require_mention"]:
                 if not (is_reply_to_bot or has_mention):
                     continue
             # Strip @mention from text
