@@ -150,7 +150,7 @@ def handle_chat_direct(chat_id: int, text: str,
             "type": "task",
             "chat_id": chat_id,
             "text": text,
-            "_is_direct_chat": True,
+            "_is_direct_chat": chat_id > 0,  # False for groups (negative chat_id)
             "reply_to_message_id": reply_to_message_id,
             "message_thread_id": message_thread_id,
         }

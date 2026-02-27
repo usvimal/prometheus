@@ -1141,8 +1141,10 @@ def handle_one_update(offset: int) -> int:
                         if text[eo:eo + el].lower() == f'@{bot_username.lower()}':
                             has_mention = True
                             break
-            # Require mention check (skip for owner, skip if policy=open or require_mention=false)
-            if not is_owner and gcfg["require_mention"] and gcfg["policy"] != "open":
+            # Require mention/reply for ALL users in groups (including owner)
+            # Only exception: policy=open or require_mention=false
+            # Owner can still use /commands without mention (handled by supervisor_command above)
+            if gcfg["require_mention"] and gcfg["policy"] != "open":
                 if not (is_reply_to_bot or has_mention):
                     continue
             # Strip @mention from text
@@ -1197,12 +1199,12 @@ def handle_one_update(offset: int) -> int:
         # Update timestamp
         _last_message_ts = time.time()
 
-        # For group messages from non-owner, prepend user context
-        if is_group and not is_owner:
+        # For group messages, prepend user context (including owner)
+        if is_group:
             username = from_user.get('username', '')
             first_name = from_user.get('first_name', '')
             display = f"@{username}" if username else first_name or f"user:{user_id}"
-            text = f"[From {display} in group] {text}"
+            text = f"[From {display} in group {chat_id}] {text}"
 
         # Enqueue chat task in a thread so main loop can drain events
         # Pass reply_to_message_id (for reply threading) and message_thread_id (for forum topics)
