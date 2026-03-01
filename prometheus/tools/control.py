@@ -102,13 +102,26 @@ def _schedule_task(ctx: ToolContext, description: str, context: str = "", parent
             })
         except Exception:
             pass
-    evt = {"type": "schedule_task", "description": description, "task_id": tid, "depth": new_depth, "ts": utc_now_iso()}
+    
+    # Build the event
+    evt = {
+        "type": "schedule_task", 
+        "description": description, 
+        "task_id": tid, 
+        "depth": new_depth, 
+        "ts": utc_now_iso()
+    }
     if context:
         evt["context"] = context
     if parent_task_id:
         evt["parent_task_id"] = parent_task_id
+    
     ctx.pending_events.append(evt)
-    return f"Scheduled task {tid}: {description}"
+    
+    # IMPORTANT: The task is QUEUED, not yet scheduled.
+    # The actual scheduling happens when pending_events are processed.
+    # We return a cautious message that reflects this uncertainty.
+    return f"Task {tid} queued for scheduling: {description}\n\n⚠️ NOTE: Task is queued but not yet confirmed in queue. Use /status to verify."
 
 
 def _cancel_task(ctx: ToolContext, task_id: str) -> str:
@@ -331,36 +344,36 @@ def get_tools() -> List[ToolEntry]:
         }, _update_identity),
         ToolEntry("toggle_evolution", {
             "name": "toggle_evolution",
-            "description": "Enable or disable evolution mode. When enabled, Prometheus runs continuous self-improvement cycles.",
+            "description": "Toggle autonomous evolution on/off.",
             "parameters": {"type": "object", "properties": {
-                "enabled": {"type": "boolean", "description": "true to enable, false to disable"},
+                "enabled": {"type": "boolean", "description": "True to enable, False to disable"},
             }, "required": ["enabled"]},
         }, _toggle_evolution),
         ToolEntry("toggle_consciousness", {
             "name": "toggle_consciousness",
-            "description": "Control background consciousness: 'start', 'stop', or 'status'.",
+            "description": "Toggle background consciousness on/off.",
             "parameters": {"type": "object", "properties": {
                 "action": {"type": "string", "enum": ["start", "stop", "status"], "description": "Action to perform"},
             }, "required": ["action"]},
         }, _toggle_consciousness),
         ToolEntry("switch_model", {
             "name": "switch_model",
-            "description": "Switch to a different LLM model or reasoning effort level. Use when you need more power (complex code, deep reasoning) or want to save budget (simple tasks). Takes effect on next round.",
+            "description": "Switch LLM model or reasoning effort for next round.",
             "parameters": {"type": "object", "properties": {
-                "model": {"type": "string", "description": "Model name (e.g. anthropic/claude-sonnet-4). Leave empty to keep current."},
-                "effort": {"type": "string", "enum": ["low", "medium", "high", "xhigh"], "description": "Reasoning effort level. Leave empty to keep current."},
+                "model": {"type": "string", "description": "Model name (e.g., 'gpt-4o', 'claude-sonnet-4')"},
+                "effort": {"type": "string", "enum": ["low", "medium", "high", "xhigh"], "description": "Reasoning effort level"},
             }, "required": []},
         }, _switch_model),
         ToolEntry("get_task_result", {
             "name": "get_task_result",
-            "description": "Read the result of a completed subtask. Use after schedule_task to collect results.",
+            "description": "Read the result of a completed subtask. Use after wait_for_task confirms completion.",
             "parameters": {"type": "object", "properties": {
                 "task_id": {"type": "string", "description": "Task ID returned by schedule_task"},
             }, "required": ["task_id"]},
         }, _get_task_result),
         ToolEntry("wait_for_task", {
             "name": "wait_for_task",
-            "description": "Check if a subtask has completed. Returns result if done, or 'still running' message. Call repeatedly to poll. Default timeout: 120s.",
+            "description": "Check if a subtask has completed. Returns result if done, or 'still running' message. Call repeatedly to poll.",
             "parameters": {"type": "object", "properties": {
                 "task_id": {"type": "string", "description": "Task ID to check"},
             }, "required": ["task_id"]},
