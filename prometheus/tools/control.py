@@ -75,19 +75,33 @@ def _schedule_task(ctx: ToolContext, description: str, context: str = "", parent
     if new_depth > MAX_SUBTASK_DEPTH:
         return f"ERROR: Subtask depth limit ({MAX_SUBTASK_DEPTH}) exceeded. Simplify your approach."
 
+    tid = uuid.uuid4().hex[:8]
+
+    # AUDIT: Always log task scheduling for verification
+    from prometheus.utils import append_jsonl
+    try:
+        append_jsonl(ctx.drive_logs() / "events.jsonl", {
+            "ts": utc_now_iso(),
+            "type": "schedule_task_audit",
+            "task_id": tid,
+            "description": description[:200],
+            "depth": new_depth,
+            "source": "direct_chat" if getattr(ctx, 'is_direct_chat', False) else "task",
+        })
+    except Exception:
+        pass
+
+    # Additional warning for direct chat (potential duplicate work)
     if getattr(ctx, 'is_direct_chat', False):
-        from prometheus.utils import append_jsonl
         try:
             append_jsonl(ctx.drive_logs() / "events.jsonl", {
                 "ts": utc_now_iso(),
                 "type": "schedule_task_from_direct_chat",
-                "description": description[:200],
+                "task_id": tid,
                 "warning": "schedule_task called from direct chat context — potential duplicate work",
             })
         except Exception:
             pass
-
-    tid = uuid.uuid4().hex[:8]
     evt = {"type": "schedule_task", "description": description, "task_id": tid, "depth": new_depth, "ts": utc_now_iso()}
     if context:
         evt["context"] = context
