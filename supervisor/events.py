@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 
+from supervisor.queue import enqueue_task
+
 
 logger = logging.getLogger(__name__)
 
@@ -384,6 +386,33 @@ def _handle_budget_exhausted(evt: Dict[str, Any], ctx: Any) -> None:
 # ============================================================================
 # Control Events
 # ============================================================================
+
+
+@on_event("schedule_task")
+def _handle_schedule_task(evt: Dict[str, Any], ctx: Any) -> None:
+    """Handle schedule_task events - actually enqueue the task."""
+    task_id = evt.get("task_id")
+    description = evt.get("description")
+    context = evt.get("context", "")
+    parent_task_id = evt.get("parent_task_id")
+    
+    if not task_id or not description:
+        logger.error(f"Invalid schedule_task event: {evt}")
+        return
+    
+    logger.info(f"Processing schedule_task event: {task_id}")
+    
+    # Build task dict and enqueue
+    task = {
+        "id": task_id,
+        "type": "task",
+        "description": description,
+        "context": context,
+        "parent_task_id": parent_task_id,
+    }
+    enqueue_task(task)
+    
+    logger.info(f"Task {task_id} enqueued successfully")
 
 
 @on_event("restart_request")
