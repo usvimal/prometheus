@@ -402,6 +402,10 @@ def _handle_schedule_task(evt: Dict[str, Any], ctx: Any) -> None:
     
     logger.info(f"Processing schedule_task event: {task_id}")
     
+    # Get chat_id from state for notifications
+    st = ctx.load_state()
+    chat_id = st.get("owner_chat_id")
+    
     # Build task dict and enqueue
     task = {
         "id": task_id,
@@ -409,6 +413,7 @@ def _handle_schedule_task(evt: Dict[str, Any], ctx: Any) -> None:
         "description": description,
         "context": context,
         "parent_task_id": parent_task_id,
+        "chat_id": chat_id,
     }
     enqueue_task(task)
     
