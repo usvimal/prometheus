@@ -6,11 +6,12 @@ from typing import List, Optional
 from prometheus.tools.registry import ToolContext, ToolEntry
 
 BASE_URL = "https://api.llama.fi"
+YIELDS_URL = "https://yields.llama.fi"
 
 
-def _fetch(endpoint: str) -> dict:
+def _fetch(endpoint: str, base: str = BASE_URL) -> dict:
     """Fetch data from DefiLlama API."""
-    url = f"{BASE_URL}{endpoint}"
+    url = f"{base}{endpoint}"
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "Prometheus/6.7", "Accept": "application/json"}
@@ -41,7 +42,7 @@ def _get_protocols(ctx: ToolContext) -> str:
 def _get_chain_tvl(ctx: ToolContext, chain: str) -> str:
     """Get TVL for a specific blockchain."""
     try:
-        data = _fetch(f"/v2/chains")
+        data = _fetch("/v2/chains")
         for c in data:
             if c.get("name", "").lower() == chain.lower():
                 tvl = c.get("tvl", 0)
@@ -103,12 +104,13 @@ def _get_stablecoins(ctx: ToolContext, chain: Optional[str] = None) -> str:
 def _get_yields(ctx: ToolContext, chain: Optional[str] = None) -> str:
     """Get yield/APY data for DeFi pools."""
     try:
-        data = _fetch("/pools")
+        # Use the new yields.llama.fi endpoint
+        data = _fetch("/pools", base=YIELDS_URL)
         pools = data.get("data", [])
         
         lines = ["📈 Top Yields:"]
         count = 0
-        for p in pools[:10]:
+        for p in pools[:15]:
             pool_chain = p.get("chain", "Unknown")
             if chain and pool_chain.lower() != chain.lower():
                 continue
@@ -118,7 +120,9 @@ def _get_yields(ctx: ToolContext, chain: Optional[str] = None) -> str:
             tvl = p.get("tvlUsd", 0)
             project = p.get("project", "Unknown")
             
-            lines.append(f"  • {symbol} on {project} ({pool_chain}): {apy:.2f}% APY | ${tvl:,.0f} TVL")
+            # Format APY nicely
+            apy_str = f"{apy:.2f}%" if apy else "N/A"
+            lines.append(f"  • {symbol} @ {apy_str} ({project}, {pool_chain})")
             count += 1
             if count >= 10:
                 break
