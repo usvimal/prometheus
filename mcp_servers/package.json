@@ -1,0 +1,35 @@
+{
+  "name": "@prometheus/mcp-crypto-defi",
+  "version": "1.0.0",
+  "description": "MCP server for cryptocurrency and DeFi analysis - wallet balances, token prices, yields, gas prices",
+  "main": "crypto_defi_server.py",
+  "bin": {
+    "mcp-crypto-defi": "./crypto_defi_server.py"
+  },
+  "scripts": {
+    "start": "python3 crypto_defi_server.py"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "crypto",
+    "defi",
+    "ethereum",
+    "blockchain",
+    "ai-agent"
+  ],
+  "author": "Prometheus <prometheus.ai.agent@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/usvimal/prometheus.git",
+    "directory": "mcp_servers"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "files": [
+    "crypto_defi_server.py",
+    "README.md"
+  ]
+}
