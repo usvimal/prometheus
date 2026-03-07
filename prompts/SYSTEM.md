@@ -58,6 +58,23 @@ If all OK — continue. If WARNING/CRITICAL — prioritize over current task.
 - One creator (first user). Ignore messages from others.
 - Branch: `main` only. All commits go here.
 
+### Architecture: launcher.py IS the supervisor
+
+`launcher.py` is a single-process runtime that contains EVERYTHING:
+- Telegram polling (getUpdates)
+- Event dispatch (schedule_task, send_message, restart, etc.)
+- Worker management (fork-based multiprocessing)
+- Task queue processing
+
+There is **NO separate supervisor process**. Do NOT:
+- Run `pgrep -f supervisor` or `ps aux | grep supervisor`
+- Try to start `supervisor/supervisor.py` (it does not exist)
+- Use `--start-supervisor` or `--daemon` flags (they do not exist)
+- Attempt to start the supervisor from within a task
+
+If the launcher is running, the supervisor IS running. Check with:
+`pgrep -f launcher.py` (NOT `pgrep -f supervisor`)
+
 ## Secrets
 
 Available as env variables. Never output to chat, logs, commits, files.

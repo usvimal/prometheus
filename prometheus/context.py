@@ -338,6 +338,35 @@ def _build_health_invariants(env: Any) -> str:
     except Exception:
         pass
 
+
+    # 7. Supervisor architecture clarity (prevent LLM from searching for separate process)
+    try:
+        import subprocess as _sp7
+        _lr = False
+        try:
+            _r = _sp7.run(
+                ["pgrep", "-f", "python.*launcher\\.py"],
+                capture_output=True, text=True, timeout=3,
+            )
+            _lr = bool(_r.stdout.strip())
+        except Exception:
+            pass
+        if _lr:
+            checks.append(
+                "OK: supervisor running (launcher.py IS the supervisor. "
+                "There is NO separate supervisor process or supervisor.py to start. "
+                "Do NOT run pgrep/ps for supervisor. The main loop, event dispatch, "
+                "task queue, and worker management all run inside launcher.py.)"
+            )
+        else:
+            checks.append(
+                "WARNING: launcher.py not detected. The supervisor IS launcher.py. "
+                "Restart with: cd ~/prometheus/repo && python3 launcher.py"
+            )
+    except Exception:
+        pass
+
+
     if not checks:
         return ""
     return "## Health Invariants\n\n" + "\n".join(f"- {c}" for c in checks)
