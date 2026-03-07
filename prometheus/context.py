@@ -339,6 +339,41 @@ def _build_health_invariants(env: Any) -> str:
         pass
 
 
+
+    # 6b. Permission-seeking drift detection (check recent chat for assistant-mode phrases)
+    try:
+        chat_log = env.drive_path("logs/chat.jsonl")
+        if chat_log.exists():
+            import collections
+            permission_phrases = [
+                "want me to proceed", "should i proceed", "shall i continue",
+                "would you like me to", "do you want me to", "want me to go ahead",
+                "let me know if you", "i can do", "if you want",
+            ]
+            recent_asks = 0
+            # Check last 20 entries
+            with open(chat_log, "r", encoding="utf-8") as f:
+                tail_lines = collections.deque(f, maxlen=20)
+            for line in tail_lines:
+                try:
+                    entry = json.loads(line.strip())
+                    if entry.get("role") not in ("assistant", ""):
+                        continue
+                    text_lower = (entry.get("text") or "").lower()
+                    if any(p in text_lower for p in permission_phrases):
+                        recent_asks += 1
+                except Exception:
+                    continue
+            if recent_asks > 0:
+                checks.append(
+                    f"WARNING: PERMISSION-SEEKING DRIFT — found {recent_asks} "
+                    f"assistant-mode phrases in recent chat (e.g. 'Want me to proceed?'). "
+                    f"STOP asking. Execute autonomously. Report what you DID, not what you COULD do."
+                )
+    except Exception:
+        pass
+
+
     # 7. Supervisor architecture clarity (prevent LLM from searching for separate process)
     try:
         import subprocess as _sp7
