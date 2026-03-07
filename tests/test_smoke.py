@@ -140,6 +140,8 @@ EXPECTED_TOOLS = [
     "defillama_global_tvl", "defillama_chains", "defillama_chain_tvl",
     "defillama_protocols", "defillama_protocol_tvl",
     "defillama_stablecoins", "defillama_yields",
+    # Compute sustainability (v6.8.0)
+    "compute_sustainability_advice", "compute_top_yields", "compute_estimate_income",
     # Computer use (v6.7.0) - desktop control (mouse/keyboard/screenshot)
     "computer_screenshot", "computer_mouse", "computer_keyboard",
     "computer_list_windows", "computer_status",
