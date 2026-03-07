@@ -124,6 +124,7 @@ def get_running_task_ids() -> List[str]:
 # Chat agent (direct mode)
 # ---------------------------------------------------------------------------
 _chat_agent = None
+_chat_lock = __import__("threading").Lock()
 
 
 def _get_chat_agent():
@@ -143,6 +144,10 @@ def handle_chat_direct(chat_id: int, text: str,
                        image_data: Optional[Union[Tuple[str, str], Tuple[str, str, str]]] = None,
                        reply_to_message_id: Optional[int] = None,
                        message_thread_id: Optional[int] = None) -> None:
+    # Serialize access to the shared chat agent to prevent duplicate responses
+    if not _chat_lock.acquire(timeout=300):
+        log.warning("handle_chat_direct: lock timeout, skipping message")
+        return
     try:
         agent = _get_chat_agent()
         task = {
@@ -186,6 +191,8 @@ def handle_chat_direct(chat_id: int, text: str,
             get_tg().send_message(chat_id, err_msg)
         except Exception:
             log.debug("Suppressed exception", exc_info=True)
+    finally:
+        _chat_lock.release()
 
 
 # ---------------------------------------------------------------------------

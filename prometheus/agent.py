@@ -478,7 +478,7 @@ class PrometheusAgent:
         # Cost/token summaries are carried by task_metrics and task_done events.
 
         self._pending_events.append({
-            "type": "send_message", "chat_id": task["chat_id"],
+            "type": "send_message", "chat_id": task.get("chat_id") or self._current_chat_id,
             "text": text or "\u200b", "log_text": text or "",
             "format": "markdown",
             "task_id": task.get("id"), "ts": utc_now_iso(),

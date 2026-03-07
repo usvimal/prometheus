@@ -410,6 +410,7 @@ def _handle_schedule_task(evt: Dict[str, Any], ctx: Any) -> None:
     task = {
         "id": task_id,
         "type": "task",
+        "text": description,  # Use description as task text for the LLM
         "description": description,
         "context": context,
         "parent_task_id": parent_task_id,
