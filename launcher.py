@@ -385,7 +385,7 @@ _consciousness = BackgroundConsciousness(
 try:
     from prometheus.tools.scheduler import start_scheduler as _start_sched
     from prometheus.tools.registry import ToolContext as _TC
-    _sched_ctx = _TC(drive_root=str(DRIVE_ROOT), repo_dir=str(REPO_DIR))
+    _sched_ctx = _TC(drive_root=DRIVE_ROOT, repo_dir=REPO_DIR)
     _start_sched(_sched_ctx)
     log.info("Scheduler thread started")
 except Exception as _se:
