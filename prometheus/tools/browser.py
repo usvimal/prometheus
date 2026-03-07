@@ -269,7 +269,26 @@ async def _extract_page_output(page: Any, output: str, ctx: ToolContext) -> str:
         text = await page.evaluate(_MARKDOWN_JS)
         return text[:30000] + ("... [truncated]" if len(text) > 30000 else "")
     else:  # text
-        text = await page.evaluate("() => document.body.innerText")
+        # Wait for document.body to exist (SPAs may not have it immediately)
+        js = """() => new Promise((resolve) => {
+            const check = () => {
+                if (document.body && document.body.innerText) {
+                    resolve(document.body.innerText);
+                } else {
+                    setTimeout(check, 200);
+                }
+            };
+            setTimeout(() => resolve(document.body ? document.body.innerText || '(empty page)' : '(page still loading)'), 10000);
+            check();
+        })"""
+        try:
+            text = await page.evaluate(js)
+        except Exception:
+            await asyncio.sleep(3)
+            try:
+                text = await page.evaluate("() => document.body ? document.body.innerText || '(empty)' : '(no body)'")
+            except Exception:
+                text = "(Failed to extract page text)"
         return text[:30000] + ("... [truncated]" if len(text) > 30000 else "")
 
 

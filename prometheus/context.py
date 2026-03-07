@@ -385,6 +385,48 @@ def _build_health_invariants(env: Any) -> str:
         pass
 
 
+
+    # 6c. Sustainability drift detection (check for passive/safe-route patterns)
+    try:
+        chat_log_path = env.drive_path("logs/chat.jsonl")
+        if chat_log_path.exists():
+            import collections as _cols2
+            passive_phrases = [
+                "defi yield", "deploy capital", "invest", "monitor wallet",
+                "check balance", "yield opportunity", "apy", "tvl",
+                "npm publish", "create account", "plan to", "i recommend",
+                "i could", "i should", "we could", "blog post draft",
+            ]
+            action_phrases = [
+                "deployed", "submitted", "created account", "published",
+                "earned", "launched", "found bug", "executed",
+            ]
+            passive_count = 0
+            action_count = 0
+            with open(chat_log_path, "r", encoding="utf-8") as _f:
+                tail = _cols2.deque(_f, maxlen=30)
+            for line in tail:
+                try:
+                    entry = json.loads(line.strip())
+                    if entry.get("role") not in ("assistant", ""):
+                        continue
+                    text_lower = (entry.get("text") or "").lower()
+                    if any(p in text_lower for p in passive_phrases):
+                        passive_count += 1
+                    if any(p in text_lower for p in action_phrases):
+                        action_count += 1
+                except Exception:
+                    continue
+            if passive_count > 3 and action_count == 0:
+                checks.append(
+                    "WARNING: SUSTAINABILITY DRIFT — you keep talking about yields/plans/monitoring "
+                    "but haven't DONE anything revenue-generating. You have $0 capital. "
+                    "Stop checking yields. Start: bug bounties, airdrop farming, freelancing, "
+                    "deploying contracts, creating content. ACT, don't plan."
+                )
+    except Exception:
+        pass
+
     # 7. Supervisor architecture clarity (prevent LLM from searching for separate process)
     try:
         import subprocess as _sp7
