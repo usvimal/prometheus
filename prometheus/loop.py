@@ -29,18 +29,20 @@ log = logging.getLogger(__name__)
 _REFLECTION_PROMPT = "REFLECTION: The last {count} tool calls errored. Think: 1) What went wrong? 2) Right tool? 3) Correct args? 4) Different approach? Explain reasoning, then try ONE corrected action."
 _MAX_CONSECUTIVE_ERRORS = 3
 
-_consecutive_errors = 0
+# Per-call error tracking (thread-safe: each call gets its own counter via closure)
 
-def _maybe_inject_reflection(error_count, messages, emit_progress):
-    global _consecutive_errors
+def _maybe_inject_reflection(error_count, messages, emit_progress, _state={}):
+    """Track consecutive errors per-thread using thread ID."""
+    import threading
+    tid = threading.get_ident()
     if error_count > 0:
-        _consecutive_errors += error_count
+        _state[tid] = _state.get(tid, 0) + error_count
     else:
-        _consecutive_errors = 0
-    if _consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
-        messages.append({"role": "user", "content": _REFLECTION_PROMPT.format(count=_consecutive_errors)})
+        _state[tid] = 0
+    if _state[tid] >= _MAX_CONSECUTIVE_ERRORS:
+        messages.append({"role": "user", "content": _REFLECTION_PROMPT.format(count=_state[tid])})
         emit_progress("Reflecting on repeated errors...")
-        _consecutive_errors = 0
+        _state[tid] = 0
 
 
 # Pricing from OpenRouter API (2026-02-17). Update periodically via /api/v1/models.

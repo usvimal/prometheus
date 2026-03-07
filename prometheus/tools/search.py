@@ -78,45 +78,10 @@ def _browser_search(ctx: ToolContext, query: str, num_results: int = 10) -> str:
 
 
 def _quick_search(ctx: ToolContext, query: str) -> str:
-    """Quick search for fast answers - uses textise dot iitty for minimal HTML."""
-    try:
-        # Use textise dot iitty for ultra-fast text-only search
-        search_url = f"https://duckduckgo.com/html/?q={query.replace(' ', '+')}"
-        
-        from prometheus.tools.browser import _browse_page
-        result = _browse_page(ctx, search_url, output="text", timeout=15000)
-        
-        # Extract result links from DuckDuckGo HTML format
-        results = []
-        # Pattern: <a class="result__a" href="URL">Title</a>
-        links = re.findall(r'<a class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>', result, re.IGNORECASE)
-        
-        for url, title in links[:10]:
-            if url.startswith('http'):
-                results.append({
-                    "url": url[:200],
-                    "title": title.strip()[:150]
-                })
-        
-        if not results:
-            return json.dumps({
-                "query": query,
-                "results": [],
-                "note": "No results parsed"
-            }, ensure_ascii=False)
-        
-        return json.dumps({
-            "query": query,
-            "results": results,
-            "count": len(results)
-        }, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        return json.dumps({
-            "query": query,
-            "error": str(e),
-            "results": []
-        }, ensure_ascii=False)
+    """Quick search - delegates to _browser_search (the HTML regex approach was broken)."""
+    return _browser_search(ctx, query, num_results=5)
+
+
 
 
 def get_tools() -> List[ToolEntry]:

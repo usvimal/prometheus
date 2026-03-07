@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import os
 import struct
 import time
 from pathlib import Path
@@ -27,6 +28,7 @@ _VEC_DIM = 384  # BAAI/bge-small-en-v1.5 dimension
 # Module-level DB connection cache
 _db_conn: Optional[sqlite3.Connection] = None
 _db_path: Optional[Path] = None
+_db_pid: int = 0  # PID that created the connection
 
 
 # ---------------------------------------------------------------------------
@@ -35,18 +37,24 @@ _db_path: Optional[Path] = None
 
 def _get_db(ctx: ToolContext) -> sqlite3.Connection:
     """Get or create SQLite connection with FTS5 + sqlite-vec."""
-    global _db_conn, _db_path
+    global _db_conn, _db_path, _db_pid
 
     db_dir = ctx.drive_path("memory")
     db_dir.mkdir(parents=True, exist_ok=True)
     path = db_dir / "semantic.db"
 
-    if _db_conn is not None and _db_path == path:
+    current_pid = os.getpid()
+    # After fork, PID changes - must open a fresh connection
+    if _db_conn is not None and _db_path == path and _db_pid == current_pid:
         try:
             _db_conn.execute("SELECT 1")
             return _db_conn
         except Exception:
             _db_conn = None
+
+    if _db_pid != current_pid and _db_conn is not None:
+        # Forked process - discard parent connection without closing
+        _db_conn = None
 
     conn = sqlite3.connect(str(path), timeout=10)
     conn.row_factory = sqlite3.Row
@@ -107,6 +115,7 @@ def _get_db(ctx: ToolContext) -> sqlite3.Connection:
     conn.commit()
     _db_conn = conn
     _db_path = path
+    _db_pid = os.getpid()
     return conn
 
 

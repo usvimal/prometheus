@@ -174,12 +174,23 @@ def _build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[
     return sections
 
 
+# Health invariant caching (avoid 12+ subprocess calls every LLM round)
+_health_cache: Optional[str] = None
+_health_cache_ts: float = 0.0
+_HEALTH_CACHE_TTL = 60.0  # seconds
+
 def _build_health_invariants(env: Any) -> str:
     """Build health invariants section for LLM-first self-detection.
 
     Surfaces anomalies as informational text. The LLM (not code) decides
     what action to take based on what it reads here. (Bible P0+P3)
     """
+    global _health_cache, _health_cache_ts
+    import time as _cache_time
+    now = _cache_time.time()
+    if _health_cache is not None and (now - _health_cache_ts) < _HEALTH_CACHE_TTL:
+        return _health_cache
+
     checks = []
 
     # 1. Version sync: VERSION file vs pyproject.toml vs README.md
@@ -403,8 +414,12 @@ def _build_health_invariants(env: Any) -> str:
 
 
     if not checks:
-        return ""
-    return "## Health Invariants\n\n" + "\n".join(f"- {c}" for c in checks)
+        result = ""
+    else:
+        result = "## Health Invariants\n\n" + "\n".join(f"- {c}" for c in checks)
+    _health_cache = result
+    _health_cache_ts = now
+    return result
 
 
 def _build_skill_sections(env: Any) -> str:
@@ -699,10 +714,13 @@ def _compact_tool_result(msg: dict, content: str) -> dict:
     if is_error:
         summary = content[:200]  # Keep error details
     else:
-        # Keep first line or first 80 chars
-        first_line = content.split('\n')[0][:80]
+        # Keep first 500 chars for useful context
         char_count = len(content)
-        summary = f"{first_line}... ({char_count} chars)" if char_count > 80 else content[:200]
+        if char_count <= 500:
+            summary = content
+        else:
+            first_lines = content[:500]
+            summary = f"{first_lines}... ({char_count} chars total)"
 
     return {**msg, "content": summary}
 

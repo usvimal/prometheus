@@ -451,14 +451,15 @@ def spawn_workers(n: int = 0) -> None:
             "count": count,
         },
     )
-    WORKERS.clear()
-    for i in range(count):
-        in_q = _CTX.Queue()
-        proc = _CTX.Process(target=worker_main,
-                           args=(i, in_q, _EVENT_Q, str(REPO_DIR), str(DRIVE_ROOT)))
-        proc.daemon = True
-        proc.start()
-        WORKERS[i] = Worker(wid=i, proc=proc, in_q=in_q, busy_task_id=None)
+    with _queue_lock:
+        WORKERS.clear()
+        for i in range(count):
+            in_q = _CTX.Queue()
+            proc = _CTX.Process(target=worker_main,
+                               args=(i, in_q, _EVENT_Q, str(REPO_DIR), str(DRIVE_ROOT)))
+            proc.daemon = True
+            proc.start()
+            WORKERS[i] = Worker(wid=i, proc=proc, in_q=in_q, busy_task_id=None)
     global _LAST_SPAWN_TIME
     _LAST_SPAWN_TIME = time.time()
     # Run SHA verification in background to avoid blocking the main loop for up to 90s

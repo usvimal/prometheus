@@ -287,10 +287,7 @@ spawn_workers(MAX_WORKERS)
 restored_pending = restore_pending_from_snapshot()
 persist_queue_snapshot(reason="startup")
 if restored_pending > 0:
-    st_boot = load_state()
-    if st_boot.get("owner_chat_id"):
-        send_with_budget(int(st_boot["owner_chat_id"]),
-                         f"Restored pending queue from snapshot: {restored_pending} tasks.")
+    log.info("Restored %d pending tasks from snapshot", restored_pending)
 
 # Persist launch time so dashboard can calculate uptime
 _st_boot = load_state()
@@ -381,6 +378,19 @@ _consciousness = BackgroundConsciousness(
     event_queue=get_event_q(),
     owner_chat_id_fn=_get_owner_chat_id,
 )
+
+# ----------------------------
+# 6.3b) Scheduler thread
+# ----------------------------
+try:
+    from prometheus.tools.scheduler import start_scheduler as _start_sched
+    from prometheus.tools.registry import ToolContext as _TC
+    _sched_ctx = _TC(drive_root=str(DRIVE_ROOT), repo_dir=str(REPO_DIR))
+    _start_sched(_sched_ctx)
+    log.info("Scheduler thread started")
+except Exception as _se:
+    log.warning("Failed to start scheduler: %s", _se)
+
 
 
 def reset_chat_agent():

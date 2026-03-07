@@ -55,28 +55,28 @@ def _mcp_connect(ctx: ToolContext, server_name: str, transport: str = "stdio",
                     args=args or [],
                     env=env or {},
                 )
+                # Store config for lazy per-call connections (async with closes session on exit)
+                _mcp_clients[server_name] = {
+                    "session": None,
+                    "transport": transport,
+                    "config": {"command": command, "args": args or [], "env": env or {}},
+                    "tools": [],
+                    "resources": [],
+                }
                 async with ClientSession(server_params) as session:
                     await session.initialize()
-                    # Get capabilities
-                    init_result = session._init_result
                     tools = await session.list_tools()
                     resources = await session.list_resources()
-                    
-                    _mcp_clients[server_name] = {
-                        "session": session,
-                        "transport": transport,
-                        "tools": [t.name for t in tools.tools],
-                        "resources": [r.uri for r in resources.resources] if resources.resources else [],
-                        "capabilities": init_result.capabilities if hasattr(init_result, 'capabilities') else {},
-                    }
-                    return {
-                        "success": True,
-                        "message": f"Connected to MCP server '{server_name}'",
-                        "server_name": server_name,
-                        "tools": _mcp_clients[server_name]["tools"],
-                        "resources": _mcp_clients[server_name]["resources"],
-                    }
-                    
+                    _mcp_clients[server_name]['tools'] = [t.name for t in tools.tools]
+                    _mcp_clients[server_name]['resources'] = [r.uri for r in resources.resources] if resources.resources else []
+
+                return {
+                    "success": True,
+                    "message": f"Connected to MCP server '{server_name}'",
+                    "server_name": server_name,
+                    "tools": _mcp_clients[server_name]["tools"],
+                    "resources": _mcp_clients[server_name]["resources"],
+                }
             elif transport == "http":
                 if not url:
                     raise ValueError("url is required for http transport")
