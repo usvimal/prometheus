@@ -1372,5 +1372,4 @@ while True:
 log.info("Main loop exited — goodbye.")
 
 
-if __name__ == "__main__":
-    main()
+# (module-level code runs the main loop above)
